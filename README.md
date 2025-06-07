@@ -122,9 +122,9 @@ If you use this code in your research, please cite:
 
 ```bibtex
 @software{enhanced_qml_pv_forecasting,
-  author = {Your Name},
+  author = {Mayan Sharma},
   title = {Enhanced Quantum Machine Learning for PV Power Forecasting},
-  year = {2024},
+  year = {2025},
   publisher = {GitHub},
   url = {https://github.com/yourusername/enhanced-qml-pv-forecasting}
 }
