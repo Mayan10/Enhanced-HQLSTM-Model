@@ -12,6 +12,7 @@ from typing import Dict, List, Tuple
 import warnings
 import os
 from datetime import datetime
+from tqdm import tqdm
 
 # Import our enhanced models
 from src.models.Enhanced_Quantum_Feature_Maps_for_PV_Power_Forecasting import (
@@ -74,12 +75,34 @@ class ModelTrainer:
         self.device = device
         self.best_model_state = None
         self.best_val_loss = float('inf')
+        self.setup_plotting_style()
         
+    def setup_plotting_style(self):
+        """Setup publication-quality plotting style"""
+        plt.style.use('seaborn-v0_8-whitegrid')
+        plt.rcParams.update({
+            'font.family': 'serif',
+            'font.size': 12,
+            'axes.labelsize': 14,
+            'axes.titlesize': 16,
+            'xtick.labelsize': 12,
+            'ytick.labelsize': 12,
+            'legend.fontsize': 12,
+            'figure.titlesize': 18,
+            'figure.dpi': 300,
+            'savefig.dpi': 300,
+            'savefig.format': 'png',
+            'savefig.bbox': 'tight',
+            'savefig.pad_inches': 0.1,
+            'axes.grid': True,
+            'grid.alpha': 0.3,
+            'lines.linewidth': 2,
+            'lines.markersize': 6
+        })
+    
     def train(self, train_loader: DataLoader, val_loader: DataLoader, 
               epochs: int = 100, lr: float = 0.001, patience: int = 20) -> Dict:
-        """
-        Train the model with proper optimization and monitoring.
-        """
+        """Train the model with proper optimization and monitoring."""
         optimizer = torch.optim.Adam(self.model.parameters(), lr=lr, weight_decay=1e-5)
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=10, factor=0.5)
         criterion = nn.MSELoss()
@@ -92,12 +115,21 @@ class ModelTrainer:
         print(f"\nTraining on {self.device}...")
         print("=" * 50)
         
-        for epoch in range(epochs):
+        # Create progress bar for epochs
+        epoch_pbar = tqdm(range(epochs), desc="Training Progress", position=0)
+        
+        for epoch in epoch_pbar:
             # Training phase
             self.model.train()
             train_loss = 0.0
+            train_preds = []
+            train_targets = []
             
-            for batch_X, batch_y in train_loader:
+            # Progress bar for training batches
+            train_batch_pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs} [Train]", 
+                                  position=1, leave=False)
+            
+            for batch_X, batch_y in train_batch_pbar:
                 batch_X, batch_y = batch_X.to(self.device), batch_y.to(self.device)
                 
                 optimizer.zero_grad()
@@ -111,8 +143,17 @@ class ModelTrainer:
                 optimizer.step()
                 
                 train_loss += loss.item()
+                train_preds.extend(predictions.detach().cpu().numpy())
+                train_targets.extend(batch_y.cpu().numpy())
+                
+                # Update batch progress bar
+                train_batch_pbar.set_postfix({
+                    'loss': f'{loss.item():.4f}',
+                    'avg_loss': f'{train_loss/len(train_batch_pbar):.4f}'
+                })
             
             train_loss /= len(train_loader)
+            train_rmse = np.sqrt(mean_squared_error(train_targets, train_preds))
             
             # Validation phase
             val_loss, val_metrics = self._validate(val_loader, criterion)
@@ -125,6 +166,9 @@ class ModelTrainer:
                 self.best_val_loss = val_loss
                 self.best_model_state = self.model.state_dict().copy()
                 patience_counter = 0
+                # Save best model
+                torch.save(self.model.state_dict(), f'best_model.pth')
+                print(f"\nNew best model saved! (Val Loss: {val_loss:.4f})")
             else:
                 patience_counter += 1
             
@@ -133,17 +177,16 @@ class ModelTrainer:
             val_losses.append(val_loss)
             metrics_history.append(val_metrics)
             
-            # Print progress
-            if epoch % 10 == 0 or epoch == epochs - 1:
-                print(f'Epoch {epoch}:')
-                print(f'  Train Loss: {train_loss:.6f}')
-                print(f'  Val Loss: {val_loss:.6f}')
-                print(f'  VAF: {val_metrics["VAF"]:.4f}')
-                print(f'  R²: {val_metrics["R2"]:.4f}')
-                print(f'  RMSE: {val_metrics["RMSE"]:.4f}')
+            # Update epoch progress bar
+            epoch_pbar.set_postfix({
+                'train_loss': f'{train_loss:.4f}',
+                'val_loss': f'{val_loss:.4f}',
+                'val_rmse': f'{val_metrics["RMSE"]:.4f}',
+                'val_vaf': f'{val_metrics["VAF"]:.4f}'
+            })
             
             if patience_counter >= patience:
-                print(f'\nEarly stopping at epoch {epoch}')
+                print(f'\nEarly stopping triggered after {epoch+1} epochs')
                 break
         
         # Load best model
@@ -157,16 +200,17 @@ class ModelTrainer:
         }
     
     def _validate(self, val_loader: DataLoader, criterion: nn.Module) -> Tuple[float, Dict]:
-        """
-        Validate the model and return loss and metrics.
-        """
+        """Validate the model and return loss and metrics."""
         self.model.eval()
         val_loss = 0.0
         all_predictions = []
         all_targets = []
         
+        # Progress bar for validation
+        val_pbar = tqdm(val_loader, desc="Validation", position=1, leave=False)
+        
         with torch.no_grad():
-            for batch_X, batch_y in val_loader:
+            for batch_X, batch_y in val_pbar:
                 batch_X, batch_y = batch_X.to(self.device), batch_y.to(self.device)
                 predictions = self.model(batch_X).squeeze()
                 loss = criterion(predictions, batch_y)
@@ -174,6 +218,9 @@ class ModelTrainer:
                 
                 all_predictions.extend(predictions.cpu().numpy())
                 all_targets.extend(batch_y.cpu().numpy())
+                
+                # Update validation progress bar
+                val_pbar.set_postfix({'loss': f'{loss.item():.4f}'})
         
         val_loss /= len(val_loader)
         
@@ -217,51 +264,68 @@ class ModelTrainer:
     
     def plot_training_curves(self, train_losses: List[float], val_losses: List[float], 
                            metrics_history: List[Dict], save_path: str = None):
-        """
-        Plot training curves and metrics.
-        """
-        plt.figure(figsize=(15, 10))
+        """Plot training curves and metrics with publication quality."""
+        fig, axes = plt.subplots(2, 2, figsize=(15, 12))
+        axes = axes.ravel()
         
         # Plot losses
-        plt.subplot(2, 2, 1)
-        plt.plot(train_losses, label='Train Loss')
-        plt.plot(val_losses, label='Val Loss')
-        plt.xlabel('Epoch')
-        plt.ylabel('Loss')
-        plt.title('Training and Validation Loss')
-        plt.legend()
+        axes[0].plot(train_losses, label='Train Loss', color='#1f77b4', linewidth=2)
+        axes[0].plot(val_losses, label='Val Loss', color='#ff7f0e', linewidth=2)
+        axes[0].set_xlabel('Epoch')
+        axes[0].set_ylabel('Loss')
+        axes[0].set_title('Training and Validation Loss')
+        axes[0].legend()
+        axes[0].grid(True, alpha=0.3)
         
         # Plot VAF
-        plt.subplot(2, 2, 2)
         vaf_values = [m['VAF'] for m in metrics_history]
-        plt.plot(vaf_values, label='VAF')
-        plt.xlabel('Epoch')
-        plt.ylabel('VAF')
-        plt.title('Variance Accounted For')
-        plt.legend()
+        axes[1].plot(vaf_values, label='VAF', color='#2ca02c', linewidth=2)
+        axes[1].set_xlabel('Epoch')
+        axes[1].set_ylabel('VAF')
+        axes[1].set_title('Variance Accounted For')
+        axes[1].legend()
+        axes[1].grid(True, alpha=0.3)
         
         # Plot R²
-        plt.subplot(2, 2, 3)
         r2_values = [m['R2'] for m in metrics_history]
-        plt.plot(r2_values, label='R²')
-        plt.xlabel('Epoch')
-        plt.ylabel('R²')
-        plt.title('R-squared Score')
-        plt.legend()
+        axes[2].plot(r2_values, label='R²', color='#d62728', linewidth=2)
+        axes[2].set_xlabel('Epoch')
+        axes[2].set_ylabel('R²')
+        axes[2].set_title('R-squared Score')
+        axes[2].legend()
+        axes[2].grid(True, alpha=0.3)
         
         # Plot RMSE
-        plt.subplot(2, 2, 4)
         rmse_values = [m['RMSE'] for m in metrics_history]
-        plt.plot(rmse_values, label='RMSE')
-        plt.xlabel('Epoch')
-        plt.ylabel('RMSE')
-        plt.title('Root Mean Square Error')
-        plt.legend()
+        axes[3].plot(rmse_values, label='RMSE', color='#9467bd', linewidth=2)
+        axes[3].set_xlabel('Epoch')
+        axes[3].set_ylabel('RMSE')
+        axes[3].set_title('Root Mean Square Error')
+        axes[3].legend()
+        axes[3].grid(True, alpha=0.3)
+        
+        # Add statistics to each subplot
+        for idx, (metric, values) in enumerate([
+            ('Loss', train_losses + val_losses),
+            ('VAF', vaf_values),
+            ('R²', r2_values),
+            ('RMSE', rmse_values)
+        ]):
+            stats_text = f'Statistics:\n'
+            stats_text += f'Min: {min(values):.4f}\n'
+            stats_text += f'Max: {max(values):.4f}\n'
+            stats_text += f'Mean: {np.mean(values):.4f}\n'
+            stats_text += f'Std: {np.std(values):.4f}'
+            
+            axes[idx].text(0.02, 0.98, stats_text,
+                         transform=axes[idx].transAxes,
+                         verticalalignment='top',
+                         bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
         
         plt.tight_layout()
         
         if save_path:
-            plt.savefig(save_path)
+            plt.savefig(save_path, dpi=300, bbox_inches='tight')
             print(f"\nTraining curves saved to {save_path}")
         plt.close()
 
@@ -572,9 +636,7 @@ class ExperimentRunner:
             'xtick.labelsize': 12,
             'ytick.labelsize': 12,
             'legend.fontsize': 12,
-            'figure.titlesize': 18,
-            'lines.linewidth': 2,
-            'lines.markersize': 6
+            'figure.titlesize': 18
         })
         
         # 1. Training Curves
@@ -1011,16 +1073,64 @@ def main():
     np.random.seed(42)
     
     # Load and preprocess data
-    data_path = 'System Data Jan 1 2023.csv'
-    data = pd.read_csv(os.path.join('data', data_path))
+    data_dir = 'data/raw'
+    all_files = []
+    
+    # Get all CSV files from the directory structure
+    year_dir = os.path.join(data_dir, '2022')  # We have data for 2022
+    if not os.path.exists(year_dir):
+        raise ValueError(f"Data directory for 2022 not found at {year_dir}")
+    
+    for month in sorted(os.listdir(year_dir)):
+        month_path = os.path.join(year_dir, month)
+        if os.path.isdir(month_path):
+            for day in sorted(os.listdir(month_path)):
+                if day.endswith('.csv'):
+                    file_path = os.path.join(month_path, day)
+                    all_files.append(file_path)
+    
+    if not all_files:
+        raise ValueError("No CSV files found in the data directory")
+    
+    print(f"\nFound {len(all_files)} data files")
+    
+    # Load and combine all files
+    dfs = []
+    for file in all_files:
+        try:
+            df = pd.read_csv(file)
+            dfs.append(df)
+            print(f"Loaded {file}")
+        except Exception as e:
+            print(f"Error loading {file}: {str(e)}")
+    
+    if not dfs:
+        raise ValueError("No valid data files found")
+    
+    # Combine all dataframes
+    data = pd.concat(dfs, ignore_index=True)
     
     # Convert timestamp to datetime
     data['measured_on'] = pd.to_datetime(data['measured_on'])
+    
+    # Sort by timestamp
+    data = data.sort_values('measured_on')
+    
+    # Validate data completeness
+    expected_days = 365  # 2022 was not a leap year
+    actual_days = (data['measured_on'].max() - data['measured_on'].min()).days + 1
+    print(f"\nData completeness check:")
+    print(f"Expected days: {expected_days}")
+    print(f"Actual days: {actual_days}")
+    print(f"Missing days: {expected_days - actual_days}")
     
     # Add time-based features
     data['hour'] = data['measured_on'].dt.hour
     data['minute'] = data['measured_on'].dt.minute
     data['time_of_day'] = data['hour'] + data['minute'] / 60
+    data['day_of_week'] = data['measured_on'].dt.dayofweek
+    data['month'] = data['measured_on'].dt.month
+    data['day_of_year'] = data['measured_on'].dt.dayofyear
     
     # Select and validate features
     base_features = [
@@ -1039,6 +1149,7 @@ def main():
     print("\nData Validation:")
     print("=" * 50)
     print(f"Total samples: {len(data)}")
+    print(f"Date range: {data['measured_on'].min()} to {data['measured_on'].max()}")
     print(f"Missing values per feature:")
     print(data[base_features].isnull().sum())
     
@@ -1111,7 +1222,8 @@ def main():
         'ambient_temp__428', 'module_temp_1__429', 'module_temp_2__430', 'module_temp_3__431',
         'poa_irradiance__421', 'ac_current__427', 'ac_voltage__426', 'inverter_temp__432',
         'temp_diff_1', 'temp_diff_2', 'temp_diff_3', 'power_ratio', 'voltage_ratio',
-        'irradiance_rolling_mean', 'power_rolling_mean', 'time_of_day'
+        'irradiance_rolling_mean', 'power_rolling_mean', 'time_of_day', 'day_of_week', 'month',
+        'day_of_year'  # Added day of year for seasonal patterns
     ]
     
     for i in range(len(data) - sequence_length):

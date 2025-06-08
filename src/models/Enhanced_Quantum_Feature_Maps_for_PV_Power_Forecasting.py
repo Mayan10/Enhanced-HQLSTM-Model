@@ -84,7 +84,7 @@ class QuantumLayer(nn.Module):
         """Forward pass with proper error handling."""
         if inputs.dim() == 1:
             inputs = inputs.unsqueeze(0)
-            
+        
         batch_size = inputs.shape[0]
         outputs = []
         
@@ -144,10 +144,10 @@ class HybridQuantumLSTM(nn.Module):
         
         # Project back to classical space
         enhanced_hidden = self.from_quantum(quantum_output)
-        
+            
         # Residual connection with normalization
         enhanced_hidden = self.layer_norm(last_hidden + enhanced_hidden)
-        
+            
         return enhanced_hidden
 
 class PVForecastingModel(nn.Module):
@@ -187,7 +187,7 @@ class PVForecastingModel(nn.Module):
             nn.init.xavier_uniform_(module.weight)
             if module.bias is not None:
                 nn.init.zeros_(module.bias)
-                
+        
     def forward(self, x):
         # Normalize inputs
         x = self.input_norm(x)
