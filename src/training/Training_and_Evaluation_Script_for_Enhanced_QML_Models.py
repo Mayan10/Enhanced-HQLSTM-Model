@@ -13,7 +13,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 # Import our enhanced models
-from Enhanced_Quantum_Feature_Maps_for_PV_Power_Forecasting import (
+from ..models.Enhanced_Quantum_Feature_Maps_for_PV_Power_Forecasting import (
     EnhancedPVForecastingModel,
     QuantumTrainingUtils
 )
