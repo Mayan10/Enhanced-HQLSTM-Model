@@ -5,26 +5,20 @@ Enhanced Quantum Machine Learning for PV Power Forecasting
 __version__ = '0.1.0'
 
 from .models import (
-    EnhancedPVForecastingModel,
-    EnhancedQuantumFeatureMap,
-    EnhancedQuantumLayer,
-    EnhancedHQLSTM,
-    QuantumTrainingUtils
+    PVForecastingModel,
+    PVDataProcessor,
+    calculate_metrics
 )
 
 from .training import (
-    PVDataProcessor,
     ModelTrainer,
     ExperimentRunner
 )
 
 __all__ = [
-    'EnhancedPVForecastingModel',
-    'EnhancedQuantumFeatureMap',
-    'EnhancedQuantumLayer',
-    'EnhancedHQLSTM',
-    'QuantumTrainingUtils',
+    'PVForecastingModel',
     'PVDataProcessor',
+    'calculate_metrics',
     'ModelTrainer',
     'ExperimentRunner'
 ]

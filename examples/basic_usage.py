@@ -3,7 +3,7 @@ Basic example of using the Enhanced QML PV Forecasting package.
 """
 
 from src import (
-    EnhancedPVForecastingModel,
+    PVForecastingModel,
     PVDataProcessor,
     ExperimentRunner
 )

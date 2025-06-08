@@ -4,18 +4,20 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 import pandas as pd
 import numpy as np
-from sklearn.preprocessing import StandardScaler, RobustScaler
+from sklearn.preprocessing import StandardScaler, RobustScaler, MinMaxScaler
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 import matplotlib.pyplot as plt
 import seaborn as sns
 from typing import Dict, List, Tuple
 import warnings
-warnings.filterwarnings('ignore')
+import os
+from datetime import datetime
 
 # Import our enhanced models
-from ..models.Enhanced_Quantum_Feature_Maps_for_PV_Power_Forecasting import (
-    EnhancedPVForecastingModel,
-    QuantumTrainingUtils
+from src.models.Enhanced_Quantum_Feature_Maps_for_PV_Power_Forecasting import (
+    PVForecastingModel,
+    PVDataProcessor,
+    calculate_metrics
 )
 
 # Set device to MPS if available (Apple Silicon)
@@ -27,504 +29,241 @@ class PVDataProcessor:
     Data processor for photovoltaic power forecasting dataset.
     """
     
-    def __init__(self, sequence_length: int = 24):
-        self.sequence_length = sequence_length
-        self.scaler = StandardScaler()
+    def __init__(self):
+        self.feature_scaler = StandardScaler()
+        self.target_scaler = MinMaxScaler(feature_range=(0, 1))
+        self.fitted = False
         
-    def load_and_preprocess_data(self, data_path: str = None) -> Tuple[np.ndarray, np.ndarray]:
-        """
-        Load and preprocess the PV dataset with enhanced validation.
-        """
-        if data_path is None:
-            # Generate synthetic data similar to the Mediterranean dataset
-            n_samples = 15000  # ~21 months of hourly data
-            data = self._generate_synthetic_pv_data(n_samples)
-        else:
-            # Load real data
-            data = pd.read_csv(data_path)
-            
-            # Convert timestamp to datetime
-            data['measured_on'] = pd.to_datetime(data['measured_on'])
-            
-            # Select relevant features
-            features = [
-                'ambient_temp__428',
-                'module_temp_1__429',
-                'module_temp_2__430',
-                'module_temp_3__431',
-                'poa_irradiance__421',
-                'dc_power__422'  # Target variable
-            ]
-            
-            # Enhanced data validation
-            print("\nData Validation:")
-            print("=" * 50)
-            print(f"Total samples: {len(data)}")
-            print(f"Missing values per feature:")
-            print(data[features].isnull().sum())
-            
-            # Handle missing values with improved strategy
-            for feature in features:
-                # Forward fill for short gaps
-                data[feature] = data[feature].fillna(method='ffill', limit=3)
-                # Backward fill for remaining NaNs
-                data[feature] = data[feature].fillna(method='bfill', limit=3)
-                # Linear interpolation for remaining gaps
-                data[feature] = data[feature].interpolate(method='linear')
-            
-            # Remove any remaining rows with NaN values
-            data = data.dropna()
-            print(f"\nSamples after cleaning: {len(data)}")
-            
-            # Extract features and target
-            data = data[features]
-            
-            # Validate data ranges
-            print("\nFeature ranges:")
-            for feature in features:
-                min_val = data[feature].min()
-                max_val = data[feature].max()
-                print(f"{feature}: [{min_val:.2f}, {max_val:.2f}]")
-            
-            # Check for outliers
-            print("\nOutlier detection:")
-            for feature in features:
-                Q1 = data[feature].quantile(0.25)
-                Q3 = data[feature].quantile(0.75)
-                IQR = Q3 - Q1
-                outliers = data[(data[feature] < (Q1 - 1.5 * IQR)) | (data[feature] > (Q3 + 1.5 * IQR))][feature]
-                print(f"{feature}: {len(outliers)} outliers detected")
-                
-                # Handle outliers with winsorization
-                lower_bound = Q1 - 1.5 * IQR
-                upper_bound = Q3 + 1.5 * IQR
-                data[feature] = data[feature].clip(lower=lower_bound, upper=upper_bound)
-        
-        return self._create_sequences(data)
+    def fit_transform(self, X, y):
+        """Fit scalers and transform data."""
+        X_scaled = self.feature_scaler.fit_transform(X.reshape(-1, X.shape[-1])).reshape(X.shape)
+        y_scaled = self.target_scaler.fit_transform(y.reshape(-1, 1)).flatten()
+        self.fitted = True
+        return torch.tensor(X_scaled, dtype=torch.float32), torch.tensor(y_scaled, dtype=torch.float32)
     
-    def _generate_synthetic_pv_data(self, n_samples: int) -> pd.DataFrame:
-        """
-        Generate synthetic PV data with realistic patterns.
-        """
-        np.random.seed(42)
+    def transform(self, X, y=None):
+        """Transform new data."""
+        if not self.fitted:
+            raise ValueError("Scaler not fitted. Call fit_transform first.")
         
-        # Time indices
-        hours = np.arange(n_samples) % 24
-        days = np.arange(n_samples) // 24
-        months = (days // 30) % 12 + 1
+        X_scaled = self.feature_scaler.transform(X.reshape(-1, X.shape[-1])).reshape(X.shape)
+        X_tensor = torch.tensor(X_scaled, dtype=torch.float32)
         
-        # Seasonal and daily patterns
-        seasonal_factor = 0.5 + 0.5 * np.cos(2 * np.pi * months / 12)
-        daily_factor = np.maximum(0, np.cos(2 * np.pi * (hours - 12) / 24))
+        if y is not None:
+            y_scaled = self.target_scaler.transform(y.reshape(-1, 1)).flatten()
+            y_tensor = torch.tensor(y_scaled, dtype=torch.float32)
+            return X_tensor, y_tensor
         
-        # Generate features
-        ambient_temp = 15 + 15 * seasonal_factor + 5 * np.random.normal(0, 1, n_samples)
-        module_temp = ambient_temp + 5 + 10 * daily_factor + 3 * np.random.normal(0, 1, n_samples)
-        
-        # Solar irradiance with realistic patterns
-        base_irradiance = 800 * seasonal_factor * daily_factor
-        irradiance = np.maximum(0, base_irradiance + 100 * np.random.normal(0, 1, n_samples))
-        
-        # PV power (correlated with irradiance and temperature)
-        pv_power = (0.001 * irradiance * (1 - 0.004 * (module_temp - 25)))
-        pv_power = np.maximum(0, pv_power + 0.1 * np.random.normal(0, 1, n_samples))
-        
-        # Create DataFrame
-        data = pd.DataFrame({
-            'ambient_temp__428': ambient_temp,
-            'module_temp_1__429': module_temp,
-            'module_temp_2__430': module_temp + np.random.normal(0, 0.5, n_samples),
-            'module_temp_3__431': module_temp + np.random.normal(0, 0.5, n_samples),
-            'poa_irradiance__421': irradiance,
-            'dc_power__422': pv_power
-        })
-        
-        return data
+        return X_tensor
     
-    def _create_sequences(self, data: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray]:
-        """
-        Create sequences for time series prediction with enhanced validation.
-        """
-        # First, separate features and target
-        features = data.iloc[:, :-1].values
-        target = data.iloc[:, -1].values.reshape(-1, 1)
-        
-        # Scale features with robust scaling
-        self.feature_scaler = RobustScaler()
-        normalized_features = self.feature_scaler.fit_transform(features)
-        
-        # Scale target separately with standard scaling
-        self.target_scaler = StandardScaler()
-        normalized_target = self.target_scaler.fit_transform(target)
-        
-        # Validate normalization
-        if np.any(np.isnan(normalized_features)) or np.any(np.isinf(normalized_features)):
-            print("Warning: NaN or Inf values detected in features. Using min-max scaling...")
-            from sklearn.preprocessing import MinMaxScaler
-            self.feature_scaler = MinMaxScaler(feature_range=(-1, 1))
-            normalized_features = self.feature_scaler.fit_transform(features)
-        
-        if np.any(np.isnan(normalized_target)) or np.any(np.isinf(normalized_target)):
-            print("Warning: NaN or Inf values detected in target. Using min-max scaling...")
-            self.target_scaler = MinMaxScaler(feature_range=(-1, 1))
-            normalized_target = self.target_scaler.fit_transform(target)
-            
-        # Ensure target has sufficient variance
-        target_std = np.std(normalized_target)
-        if target_std < 1e-6:
-            print("Warning: Target has very low variance. Adding small noise...")
-            normalized_target = normalized_target + np.random.normal(0, 0.01, normalized_target.shape)
-        
-        X, y = [], []
-        
-        for i in range(len(normalized_features) - self.sequence_length):
-            # Input: previous sequence_length hours of all features
-            X.append(normalized_features[i:i + self.sequence_length])
-            # Output: next hour's PV power
-            y.append(normalized_target[i + self.sequence_length])
-        
-        X = np.array(X)
-        y = np.array(y)
-        
-        # Add feature engineering for better pattern recognition
-        X = self._add_engineered_features(X)
-        
-        # Validate final shapes and values
-        print("\nSequence Creation Summary:")
-        print("=" * 50)
-        print(f"Input shape: {X.shape}, Target shape: {y.shape}")
-        print(f"Input range: [{X.min():.3f}, {X.max():.3f}]")
-        print(f"Target range: [{y.min():.3f}, {y.max():.3f}]")
-        print(f"Target mean: {y.mean():.3f}")
-        print(f"Target std: {y.std():.3f}")
-        
-        # Validate sequence continuity
-        sequence_gaps = np.diff(X[:, 0, 0])  # Check first feature's continuity
-        if np.any(np.abs(sequence_gaps) > 1e-6):
-            print("Warning: Potential sequence gaps detected")
-            
-        # Store target scaler in the dataset for later use
-        self.target_scaler = self.target_scaler
-        
-        return X, y
-        
-    def _add_engineered_features(self, X: np.ndarray) -> np.ndarray:
-        """
-        Add engineered features to enhance pattern recognition.
-        """
-        n_samples, seq_len, n_features = X.shape
-        
-        # Create new feature array with additional engineered features
-        n_new_features = n_features + 4  # Adding 4 new features
-        X_enhanced = np.zeros((n_samples, seq_len, n_new_features))
-        X_enhanced[:, :, :n_features] = X
-        
-        # Add rolling statistics as new features
-        for i in range(n_samples):
-            # Rolling mean (last 6 hours)
-            X_enhanced[i, :, n_features] = np.convolve(X[i, :, 0], 
-                                                     np.ones(6)/6, mode='same')
-            # Rolling std (last 6 hours)
-            X_enhanced[i, :, n_features+1] = np.array([np.std(X[i, max(0, j-6):j+1, 0]) 
-                                                     for j in range(seq_len)])
-            # Hour of day pattern (assuming 24-hour cycle)
-            X_enhanced[i, :, n_features+2] = np.sin(2 * np.pi * np.arange(seq_len) / 24)
-            # Day of week pattern (assuming 7-day cycle)
-            X_enhanced[i, :, n_features+3] = np.sin(2 * np.pi * np.arange(seq_len) / (24*7))
-        
-        return X_enhanced
+    def inverse_transform_target(self, y_scaled):
+        """Inverse transform predictions."""
+        if isinstance(y_scaled, torch.Tensor):
+            y_scaled = y_scaled.detach().numpy()
+        return self.target_scaler.inverse_transform(y_scaled.reshape(-1, 1)).flatten()
 
 class ModelTrainer:
     """
     Trainer class for enhanced quantum models.
     """
     
-    def __init__(self, model: nn.Module, device: str = None):
-        self.device = device if device is not None else torch.device("mps" if torch.backends.mps.is_available() else "cpu")
-        self.model = model.to(self.device)
-        self.training_history = {
-            'train_loss': [],
-            'val_loss': [],
-            'train_mae': [],
-            'val_mae': []
+    def __init__(self, model: PVForecastingModel, processor: PVDataProcessor, 
+                 device: str = 'cuda' if torch.cuda.is_available() else 'cpu'):
+        self.model = model.to(device)
+        self.processor = processor
+        self.device = device
+        self.best_model_state = None
+        self.best_val_loss = float('inf')
+        
+    def train(self, train_loader: DataLoader, val_loader: DataLoader, 
+              epochs: int = 100, lr: float = 0.001, patience: int = 20) -> Dict:
+        """
+        Train the model with proper optimization and monitoring.
+        """
+        optimizer = torch.optim.Adam(self.model.parameters(), lr=lr, weight_decay=1e-5)
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=10, factor=0.5)
+        criterion = nn.MSELoss()
+        
+        train_losses = []
+        val_losses = []
+        metrics_history = []
+        patience_counter = 0
+        
+        print(f"\nTraining on {self.device}...")
+        print("=" * 50)
+        
+        for epoch in range(epochs):
+            # Training phase
+            self.model.train()
+            train_loss = 0.0
+            
+            for batch_X, batch_y in train_loader:
+                batch_X, batch_y = batch_X.to(self.device), batch_y.to(self.device)
+                
+                optimizer.zero_grad()
+                predictions = self.model(batch_X).squeeze()
+                loss = criterion(predictions, batch_y)
+                
+                # Gradient clipping for stability
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+                
+                loss.backward()
+                optimizer.step()
+                
+                train_loss += loss.item()
+            
+            train_loss /= len(train_loader)
+            
+            # Validation phase
+            val_loss, val_metrics = self._validate(val_loader, criterion)
+            
+            # Learning rate scheduling
+            scheduler.step(val_loss)
+            
+            # Early stopping
+            if val_loss < self.best_val_loss:
+                self.best_val_loss = val_loss
+                self.best_model_state = self.model.state_dict().copy()
+                patience_counter = 0
+            else:
+                patience_counter += 1
+            
+            # Store metrics
+            train_losses.append(train_loss)
+            val_losses.append(val_loss)
+            metrics_history.append(val_metrics)
+            
+            # Print progress
+            if epoch % 10 == 0 or epoch == epochs - 1:
+                print(f'Epoch {epoch}:')
+                print(f'  Train Loss: {train_loss:.6f}')
+                print(f'  Val Loss: {val_loss:.6f}')
+                print(f'  VAF: {val_metrics["VAF"]:.4f}')
+                print(f'  R²: {val_metrics["R2"]:.4f}')
+                print(f'  RMSE: {val_metrics["RMSE"]:.4f}')
+            
+            if patience_counter >= patience:
+                print(f'\nEarly stopping at epoch {epoch}')
+                break
+        
+        # Load best model
+        if self.best_model_state is not None:
+            self.model.load_state_dict(self.best_model_state)
+        
+        return {
+            'train_losses': train_losses,
+            'val_losses': val_losses,
+            'metrics_history': metrics_history
         }
+    
+    def _validate(self, val_loader: DataLoader, criterion: nn.Module) -> Tuple[float, Dict]:
+        """
+        Validate the model and return loss and metrics.
+        """
+        self.model.eval()
+        val_loss = 0.0
+        all_predictions = []
+        all_targets = []
         
-    def train_model(self, train_loader: DataLoader, val_loader: DataLoader, 
-                   epochs: int = 10, lr: float = 0.001, use_quantum_optimizer: bool = False):
-        """
-        Train the model with enhanced stability measures and learning strategies.
-        """
-        try:
-            # Get target scaler from data processor
-            if hasattr(train_loader.dataset, 'target_scaler'):
-                self.model.target_scaler = train_loader.dataset.target_scaler
-            elif hasattr(train_loader.dataset.tensors[0], 'target_scaler'):
-                self.model.target_scaler = train_loader.dataset.tensors[0].target_scaler
-            
-            # Initialize model parameters with better scaling
-            for name, param in self.model.named_parameters():
-                if 'weight' in name and param.dim() > 1:  # Only apply Xavier to 2D+ weights
-                    nn.init.xavier_uniform_(param, gain=1.0)
-                elif 'bias' in name:  # Initialize biases to zero
-                    nn.init.zeros_(param)
-                elif 'weight' in name and param.dim() == 1:  # Handle 1D weights
-                    nn.init.normal_(param, mean=0.0, std=0.1)
-            
-            # Choose optimizer with gradient clipping and weight decay
-            if use_quantum_optimizer:
-                optimizer = optim.AdamW(self.model.parameters(), lr=lr, weight_decay=1e-4)
-            else:
-                optimizer = optim.AdamW(self.model.parameters(), lr=lr, weight_decay=1e-4)
+        with torch.no_grad():
+            for batch_X, batch_y in val_loader:
+                batch_X, batch_y = batch_X.to(self.device), batch_y.to(self.device)
+                predictions = self.model(batch_X).squeeze()
+                loss = criterion(predictions, batch_y)
+                val_loss += loss.item()
                 
-            criterion = nn.MSELoss()
-            scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-                optimizer, 
-                mode='min',
-                factor=0.5,
-                patience=3,
-                min_lr=1e-6
-            )
-            
-            best_val_loss = float('inf')
-            patience_counter = 0
-            patience = 5
-            
-            # Initialize gradient clipping
-            max_grad_norm = 1.0
-            
-            print(f"\nStarting training on {self.device}...")
-            print("=" * 50)
-            
-            for epoch in range(epochs):
-                try:
-                    # Training phase
-                    self.model.train()
-                    train_losses, train_maes = [], []
-                    
-                    for batch_idx, (data, target) in enumerate(train_loader):
-                        try:
-                            # Move data to device and ensure float type
-                            data = data.to(self.device).float()
-                            target = target.to(self.device).float()
-                            
-                            optimizer.zero_grad()
-                            
-                            # Forward pass with gradient scaling
-                            output = self.model(data)
-                            
-                            # Compute loss with numerical stability
-                            loss = criterion(output, target)
-                            
-                            if use_quantum_optimizer:
-                                # Apply quantum natural gradient with stability
-                                QuantumTrainingUtils.quantum_natural_gradient_step(self.model, loss, lr)
-                            else:
-                                loss.backward()
-                                
-                                # Gradient clipping for stability
-                                torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_grad_norm)
-                                
-                            optimizer.step()
-                            
-                            # Calculate metrics with numerical stability
-                            mae = torch.mean(torch.abs(output - target))
-                            train_losses.append(loss.item())
-                            train_maes.append(mae.item())
-                            
-                            # Print batch progress
-                            if batch_idx % 10 == 0:
-                                print(f"Batch {batch_idx}/{len(train_loader)} - Loss: {loss.item():.6f}", end='\r')
-                            
-                        except Exception as e:
-                            print(f"\nError in batch {batch_idx}: {e}")
-                            continue
-                    
-                    # Validation phase
-                    self.model.eval()
-                    val_losses, val_maes = [], []
-                    
-                    with torch.no_grad():
-                        for data, target in val_loader:
-                            try:
-                                # Move data to device and ensure float type
-                                data = data.to(self.device).float()
-                                target = target.to(self.device).float()
-                                
-                                # Forward pass
-                                output = self.model(data)
-                                
-                                # Compute metrics with numerical stability
-                                val_loss = criterion(output, target)
-                                val_mae = torch.mean(torch.abs(output - target))
-                                
-                                val_losses.append(val_loss.item())
-                                val_maes.append(val_mae.item())
-                                
-                            except Exception as e:
-                                print(f"\nError in validation batch: {e}")
-                                continue
-                    
-                    # Record metrics with stability checks
-                    avg_train_loss = np.mean(train_losses)
-                    avg_val_loss = np.mean(val_losses)
-                    avg_train_mae = np.mean(train_maes)
-                    avg_val_mae = np.mean(val_maes)
-                    
-                    # Check for NaN or Inf values
-                    if np.isnan(avg_train_loss) or np.isinf(avg_train_loss):
-                        print(f"\nWarning: Invalid training loss detected: {avg_train_loss}")
-                        continue
-                    
-                    self.training_history['train_loss'].append(avg_train_loss)
-                    self.training_history['val_loss'].append(avg_val_loss)
-                    self.training_history['train_mae'].append(avg_train_mae)
-                    self.training_history['val_mae'].append(avg_val_mae)
-                    
-                    # Learning rate scheduling
-                    scheduler.step(avg_val_loss)
-                    current_lr = optimizer.param_groups[0]['lr']
-                    
-                    # Early stopping with stability
-                    if avg_val_loss < best_val_loss:
-                        best_val_loss = avg_val_loss
-                        patience_counter = 0
-                        # Save best model with error handling
-                        try:
-                            # Convert numpy values to Python native types
-                            save_dict = {
-                                'epoch': epoch,
-                                'model_state_dict': self.model.state_dict(),
-                                'optimizer_state_dict': optimizer.state_dict(),
-                                'loss': float(best_val_loss),  # Convert numpy float to Python float
-                            }
-                            torch.save(save_dict, 'best_model.pth')
-                        except Exception as e:
-                            print(f"\nWarning: Could not save model: {e}")
-                    else:
-                        patience_counter += 1
-                    
-                    # Print progress with stability metrics
-                    print(f'\nEpoch {epoch+1:3d}:')
-                    print(f'Train Loss: {avg_train_loss:.6f} (MAE: {avg_train_mae:.6f})')
-                    print(f'Val Loss: {avg_val_loss:.6f} (MAE: {avg_val_mae:.6f})')
-                    print(f'LR: {current_lr:.6f}')
-                    
-                    if patience_counter >= patience:
-                        print(f'Early stopping at epoch {epoch+1}')
-                        break
-                    
-                except Exception as e:
-                    print(f"\nError in epoch {epoch+1}: {e}")
-                    continue
-            
-            # Load best model with error handling
-            try:
-                checkpoint = torch.load('best_model.pth', weights_only=False)  # Explicitly set weights_only=False
-                self.model.load_state_dict(checkpoint['model_state_dict'])
-                print(f"\nTraining complete. Best validation loss: {checkpoint['loss']:.6f}\n")
-            except Exception as e:
-                print(f"\nWarning: Could not load best model: {e}")
-                
-        except Exception as e:
-            print(f"\nFatal error during training: {e}")
-            raise
+                all_predictions.extend(predictions.cpu().numpy())
+                all_targets.extend(batch_y.cpu().numpy())
         
-    def evaluate_model(self, test_loader: DataLoader) -> Dict[str, float]:
+        val_loss /= len(val_loader)
+        
+        # Convert back to original scale
+        predictions_orig = self.processor.inverse_transform_target(np.array(all_predictions))
+        targets_orig = self.processor.inverse_transform_target(np.array(all_targets))
+        
+        # Calculate metrics
+        metrics = calculate_metrics(targets_orig, predictions_orig)
+        
+        return val_loss, metrics
+    
+    def evaluate(self, test_loader: DataLoader) -> Dict:
         """
-        Evaluate the trained model on test data with enhanced metrics and insights.
+        Evaluate the model on test data.
         """
-        try:
-            self.model.eval()
-            predictions, targets = [], []
-            
-            with torch.no_grad():
-                for data, target in test_loader:
-                    try:
-                        data, target = data.to(self.device), target.to(self.device)
-                        output = self.model(data.float())
-                        
-                        # Denormalize predictions and targets using the target scaler
-                        if hasattr(self.model, 'target_scaler') and self.model.target_scaler is not None:
-                            output = self.model.target_scaler.inverse_transform(output.cpu().numpy())
-                            target = self.model.target_scaler.inverse_transform(target.cpu().numpy())
-                        
-                        predictions.extend(output)
-                        targets.extend(target)
-                    except Exception as e:
-                        print(f"\nError in evaluation batch: {e}")
-                        continue
-            
-            predictions = np.array(predictions)
-            targets = np.array(targets)
-            
-            if len(predictions) == 0 or len(targets) == 0:
-                raise ValueError("No valid predictions or targets were generated during evaluation")
-            
-            # Calculate basic metrics
-            mse = mean_squared_error(targets, predictions)
-            mae = mean_absolute_error(targets, predictions)
-            rmse = np.sqrt(mse)
-            
-            # Calculate advanced metrics
-            target_variance = np.var(targets)
-            error_variance = np.var(targets - predictions)
-            
-            # Calculate R-squared score
-            r2 = 1 - (np.sum((targets - predictions) ** 2) / np.sum((targets - np.mean(targets)) ** 2))
-            
-            # Calculate explained variance score
-            explained_variance = 1 - (error_variance / target_variance) if target_variance > 0 else 0
-            
-            # Calculate directional accuracy
-            direction_accuracy = np.mean(np.sign(np.diff(targets)) == np.sign(np.diff(predictions)))
-            
-            # Add detailed debugging information
-            print("\nModel Performance Analysis:")
-            print("=" * 50)
-            print(f"Target Statistics:")
-            print(f"Mean: {np.mean(targets):.4f}")
-            print(f"Std: {np.std(targets):.4f}")
-            print(f"Range: [{np.min(targets):.4f}, {np.max(targets):.4f}]")
-            print(f"\nPrediction Statistics:")
-            print(f"Mean: {np.mean(predictions):.4f}")
-            print(f"Std: {np.std(predictions):.4f}")
-            print(f"Range: [{np.min(predictions):.4f}, {np.max(predictions):.4f}]")
-            print(f"\nError Analysis:")
-            print(f"Mean Absolute Error: {mae:.4f}")
-            print(f"Root Mean Squared Error: {rmse:.4f}")
-            print(f"R-squared Score: {r2:.4f}")
-            print(f"Explained Variance: {explained_variance:.4f}")
-            print(f"Directional Accuracy: {direction_accuracy:.4f}")
-            
-            # Calculate VAF with improved stability
-            if target_variance < 1e-10:
-                print("Warning: Target variance is too small, using alternative VAF calculation")
-                vaf = max(0, (1 - mse / (np.mean(targets**2) + 1e-10))) * 100
-            else:
-                vaf = max(0, (1 - error_variance / target_variance)) * 100
-            
-            print(f"\nFinal VAF: {vaf:.2f}%")
-            
-            return {
-                'MSE': mse,
-                'MAE': mae,
-                'RMSE': rmse,
-                'VAF': vaf,
-                'R2': r2,
-                'Explained_Variance': explained_variance,
-                'Directional_Accuracy': direction_accuracy
-            }
-        except Exception as e:
-            print(f"\nError during model evaluation: {e}")
-            return {
-                'MSE': float('inf'),
-                'MAE': float('inf'),
-                'RMSE': float('inf'),
-                'VAF': 0.0,
-                'R2': 0.0,
-                'Explained_Variance': 0.0,
-                'Directional_Accuracy': 0.0
-            }
+        print("\nEvaluating on test set...")
+        print("=" * 50)
+        
+        _, metrics = self._validate(test_loader, nn.MSELoss())
+        
+        print("\nTest Results:")
+        print(f"VAF (Variance Accounted For): {metrics['VAF']:.4f}")
+        print(f"R²: {metrics['R2']:.4f}")
+        print(f"RMSE: {metrics['RMSE']:.4f}")
+        print(f"MAE: {metrics['MAE']:.4f}")
+        print(f"MAPE: {metrics['MAPE']:.2f}%")
+        
+        return metrics
+    
+    def save_model(self, path: str):
+        """
+        Save the model and its state.
+        """
+        torch.save({
+            'model_state_dict': self.model.state_dict(),
+            'processor': self.processor,
+            'best_val_loss': self.best_val_loss
+        }, path)
+        print(f"\nModel saved to {path}")
+    
+    def plot_training_curves(self, train_losses: List[float], val_losses: List[float], 
+                           metrics_history: List[Dict], save_path: str = None):
+        """
+        Plot training curves and metrics.
+        """
+        plt.figure(figsize=(15, 10))
+        
+        # Plot losses
+        plt.subplot(2, 2, 1)
+        plt.plot(train_losses, label='Train Loss')
+        plt.plot(val_losses, label='Val Loss')
+        plt.xlabel('Epoch')
+        plt.ylabel('Loss')
+        plt.title('Training and Validation Loss')
+        plt.legend()
+        
+        # Plot VAF
+        plt.subplot(2, 2, 2)
+        vaf_values = [m['VAF'] for m in metrics_history]
+        plt.plot(vaf_values, label='VAF')
+        plt.xlabel('Epoch')
+        plt.ylabel('VAF')
+        plt.title('Variance Accounted For')
+        plt.legend()
+        
+        # Plot R²
+        plt.subplot(2, 2, 3)
+        r2_values = [m['R2'] for m in metrics_history]
+        plt.plot(r2_values, label='R²')
+        plt.xlabel('Epoch')
+        plt.ylabel('R²')
+        plt.title('R-squared Score')
+        plt.legend()
+        
+        # Plot RMSE
+        plt.subplot(2, 2, 4)
+        rmse_values = [m['RMSE'] for m in metrics_history]
+        plt.plot(rmse_values, label='RMSE')
+        plt.xlabel('Epoch')
+        plt.ylabel('RMSE')
+        plt.title('Root Mean Square Error')
+        plt.legend()
+        
+        plt.tight_layout()
+        
+        if save_path:
+            plt.savefig(save_path)
+            print(f"\nTraining curves saved to {save_path}")
+        plt.close()
 
 class ExperimentRunner:
     """
@@ -663,27 +402,25 @@ class ExperimentRunner:
         print("\nTesting all model configurations...")
         print("=" * 50)
         
+        # Update model configs to only include allowed arguments
+        # Remove n_quantum_layers, encoding_type, use_quantum_optimizer from configs and model initialization
+
+        # Example config update:
         configs = [
             {
                 'name': 'Base HQLSTM',
                 'n_qubits': 4,
-                'n_quantum_layers': 2,
-                'encoding_type': 'fourier',
-                'use_quantum_optimizer': False
+                'hidden_size': 32
             },
             {
                 'name': 'Enhanced HQLSTM',
                 'n_qubits': 4,
-                'n_quantum_layers': 2,
-                'encoding_type': 'fourier',
-                'use_quantum_optimizer': True
+                'hidden_size': 64
             },
             {
                 'name': 'Multi-Scale HQLSTM',
                 'n_qubits': 6,
-                'n_quantum_layers': 3,
-                'encoding_type': 'iqp',
-                'use_quantum_optimizer': True
+                'hidden_size': 128
             }
         ]
         
@@ -695,13 +432,11 @@ class ExperimentRunner:
             
             try:
                 # Initialize model
-                model = EnhancedPVForecastingModel(
+                model = PVForecastingModel(
                     input_features=input_features,
-                    sequence_length=sequence_length,
-                    hidden_size=32,
+                    hidden_size=config['hidden_size'],
                     n_qubits=config['n_qubits'],
-                    n_quantum_layers=config['n_quantum_layers'],
-                    encoding_type=config['encoding_type']
+                    dropout=0.2
                 ).to(device)
                 
                 # Test forward pass
@@ -732,74 +467,65 @@ class ExperimentRunner:
         """
         Run comparative study of different model configurations.
         """
-        # Create data loaders
-        train_dataset = TensorDataset(X_train, y_train)
-        val_dataset = TensorDataset(X_val, y_val)
-        test_dataset = TensorDataset(X_test, y_test)
+        # Initialize and fit the data processor
+        processor = PVDataProcessor()
+        X_train_scaled, y_train_scaled = processor.fit_transform(X_train, y_train)
+        X_val_scaled, y_val_scaled = processor.transform(X_val, y_val)
+        X_test_scaled, y_test_scaled = processor.transform(X_test, y_test)
         
-        self.train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
-        self.val_loader = DataLoader(val_dataset, batch_size=32)
-        self.test_loader = DataLoader(test_dataset, batch_size=32)
+        # Create data loaders with scaled data
+        train_dataset = TensorDataset(X_train_scaled, y_train_scaled)
+        val_dataset = TensorDataset(X_val_scaled, y_val_scaled)
+        test_dataset = TensorDataset(X_test_scaled, y_test_scaled)
         
-        # Test all models first
-        valid_configs = self.test_all_models(
-            input_features=X_train.shape[2],
-            sequence_length=X_train.shape[1]
-        )
+        self.train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
+        self.val_loader = DataLoader(val_dataset, batch_size=64, shuffle=False)
+        self.test_loader = DataLoader(test_dataset, batch_size=64, shuffle=False)
+        
+        # Store original data for later use
+        self.X_test = X_test
+        self.y_test = y_test
+        
+        # Test all model configurations
+        valid_configs = self.test_all_models(X_train.shape[2], X_train.shape[1])
         
         if not valid_configs:
             print("\nNo valid model configurations found. Exiting...")
             return
-            
+        
         print("\nStarting training for valid configurations...")
         print("=" * 50)
         
-        # Train and evaluate each valid configuration
         for config in valid_configs:
             print(f"\nTraining {config['name']}...")
-            
-            # Initialize model
-            model = EnhancedPVForecastingModel(
+            model = PVForecastingModel(
                 input_features=X_train.shape[2],
-                sequence_length=X_train.shape[1],
-                hidden_size=32,
+                hidden_size=config['hidden_size'],
                 n_qubits=config['n_qubits'],
-                n_quantum_layers=config['n_quantum_layers'],
-                encoding_type=config['encoding_type']
+                dropout=0.3  # Increased dropout for better regularization
             ).to(device)
             
-            # Train model
-            trainer = ModelTrainer(model, device=device)
-            trainer.train_model(
+            trainer = ModelTrainer(model, processor)
+            training_history = trainer.train(
                 self.train_loader,
                 self.val_loader,
-                epochs=10,
-                lr=0.001,
-                use_quantum_optimizer=config['use_quantum_optimizer']
+                epochs=200,  # Increased epochs
+                lr=0.001,    # Learning rate
+                patience=30  # Increased patience for early stopping
             )
             
             # Store training history
-            self.training_histories[config['name']] = trainer.training_history
+            self.training_histories[config['name']] = training_history
             
-            # Evaluate model
-            metrics = trainer.evaluate_model(self.test_loader)
-            self.results[config['name']] = metrics
-            self.models[config['name']] = model
+            # Evaluate on test set
+            test_metrics = trainer.evaluate(self.test_loader)
+            self.results[config['name']] = test_metrics
             
-            print(f"\nResults for {config['name']}:")
-            for metric, value in metrics.items():
-                print(f"{metric}: {value:.4f}")
+            # Save model
+            self.save_model(model, config['name'])
         
-        # Generate comprehensive visualizations
+        # Generate plots
         self.plot_results()
-        
-        # Print summary statistics
-        print("\nSummary Statistics:")
-        print("=" * 50)
-        for model_name, metrics in self.results.items():
-            print(f"\n{model_name}:")
-            for metric, value in metrics.items():
-                print(f"{metric}: {value:.4f}")
 
     def test_forward_pass(self, model: nn.Module, batch_size: int = 2, sequence_length: int = 24, 
                          input_features: int = 5) -> bool:
@@ -1258,55 +984,210 @@ class ExperimentRunner:
             history_df = pd.DataFrame(history)
             history_df.to_csv(f'training_history_{model_name}.csv')
 
+    def save_model(self, model, name):
+        """
+        Save model to disk.
+        """
+        # Create models directory if it doesn't exist
+        os.makedirs('models', exist_ok=True)
+        
+        # Save model state
+        model_path = os.path.join('models', f'{name.lower().replace(" ", "_")}.pth')
+        torch.save(model.state_dict(), model_path)
+        print(f"\nModel saved to {model_path}")
+        
+        # Save model architecture
+        arch_path = os.path.join('models', f'{name.lower().replace(" ", "_")}_architecture.txt')
+        with open(arch_path, 'w') as f:
+            f.write(str(model))
+        print(f"Model architecture saved to {arch_path}")
+
 def main():
     """
-    Main execution function.
+    Main function to run the training and evaluation script.
     """
-    # Initialize experiment runner
-    experiment_runner = ExperimentRunner()
-    
-    # First test plotting functions
-    if not experiment_runner.test_plotting_functions():
-        print("\nPlotting function tests failed. Please fix the issues before proceeding with training.")
-        return
-        
-    print("\nPlotting function tests passed. Proceeding with training...")
-    print("=" * 50)
-    
     # Set random seeds for reproducibility
     torch.manual_seed(42)
     np.random.seed(42)
     
-    # Initialize data processor
-    processor = PVDataProcessor(sequence_length=24)
+    # Load and preprocess data
+    data_path = 'System Data Jan 1 2023.csv'
+    data = pd.read_csv(os.path.join('data', data_path))
     
-    # Load and preprocess real PV data
-    X, y = processor.load_and_preprocess_data('System Data Jan 1 2023.csv')
+    # Convert timestamp to datetime
+    data['measured_on'] = pd.to_datetime(data['measured_on'])
     
-    # Convert to torch tensors and move to device
-    X = torch.FloatTensor(X).to(device)
-    y = torch.FloatTensor(y).to(device)
+    # Add time-based features
+    data['hour'] = data['measured_on'].dt.hour
+    data['minute'] = data['measured_on'].dt.minute
+    data['time_of_day'] = data['hour'] + data['minute'] / 60
     
-    # Split data into train, validation, and test sets
+    # Select and validate features
+    base_features = [
+        'ambient_temp__428',
+        'module_temp_1__429',
+        'module_temp_2__430',
+        'module_temp_3__431',
+        'poa_irradiance__421',
+        'ac_current__427',
+        'ac_voltage__426',
+        'inverter_temp__432',
+        'dc_power__422'  # Target variable
+    ]
+    
+    # Enhanced data validation
+    print("\nData Validation:")
+    print("=" * 50)
+    print(f"Total samples: {len(data)}")
+    print(f"Missing values per feature:")
+    print(data[base_features].isnull().sum())
+    
+    # Handle missing values with improved strategy
+    for feature in base_features:
+        # Forward fill for short gaps
+        data[feature] = data[feature].ffill(limit=3)
+        # Backward fill for remaining NaNs
+        data[feature] = data[feature].bfill(limit=3)
+        # Linear interpolation for remaining gaps
+        data[feature] = data[feature].interpolate(method='linear')
+    
+    # Remove any remaining rows with NaN values
+    data = data.dropna()
+    print(f"\nSamples after cleaning: {len(data)}")
+    
+    # Handle physically impossible values
+    # Clipping power and irradiance to non-negative values
+    data['poa_irradiance__421'] = data['poa_irradiance__421'].clip(lower=0)
+    data['dc_power__422'] = data['dc_power__422'].clip(lower=0)
+    data['ac_power__423'] = data['ac_power__423'].clip(lower=0)
+    
+    # Clipping temperatures to reasonable ranges
+    temp_columns = ['ambient_temp__428', 'module_temp_1__429', 'module_temp_2__430', 'module_temp_3__431', 'inverter_temp__432']
+    for col in temp_columns:
+        data[col] = data[col].clip(lower=-10, upper=100)
+    
+    # Add engineered features
+    # Temperature differentials
+    data['temp_diff_1'] = data['module_temp_1__429'] - data['ambient_temp__428']
+    data['temp_diff_2'] = data['module_temp_2__430'] - data['ambient_temp__428']
+    data['temp_diff_3'] = data['module_temp_3__431'] - data['ambient_temp__428']
+    
+    # System efficiency metrics
+    data['power_ratio'] = data['dc_power__422'] / (data['poa_irradiance__421'] + 1e-6)  # Avoid division by zero
+    data['voltage_ratio'] = data['ac_voltage__426'] / (data['dc_pos_voltage__424'] + 1e-6)
+    
+    # Rolling statistics
+    window_size = 6  # 6-minute window
+    data['irradiance_rolling_mean'] = data['poa_irradiance__421'].rolling(window=window_size, min_periods=1).mean()
+    data['power_rolling_mean'] = data['dc_power__422'].rolling(window=window_size, min_periods=1).mean()
+    
+    # Validate data ranges
+    print("\nFeature ranges after cleaning:")
+    for feature in base_features:
+        min_val = data[feature].min()
+        max_val = data[feature].max()
+        print(f"{feature}: [{min_val:.2f}, {max_val:.2f}]")
+    
+    # Check for outliers
+    print("\nOutlier detection:")
+    for feature in base_features:
+        Q1 = data[feature].quantile(0.25)
+        Q3 = data[feature].quantile(0.75)
+        IQR = Q3 - Q1
+        outliers = data[(data[feature] < (Q1 - 1.5 * IQR)) | (data[feature] > (Q3 + 1.5 * IQR))][feature]
+        print(f"{feature}: {len(outliers)} outliers detected")
+        
+        # Handle outliers with winsorization
+        lower_bound = Q1 - 1.5 * IQR
+        upper_bound = Q3 + 1.5 * IQR
+        data[feature] = data[feature].clip(lower=lower_bound, upper=upper_bound)
+    
+    # Create sequences
+    sequence_length = 24
+    X, y = [], []
+    
+    # Select features for model input
+    feature_columns = [
+        'ambient_temp__428', 'module_temp_1__429', 'module_temp_2__430', 'module_temp_3__431',
+        'poa_irradiance__421', 'ac_current__427', 'ac_voltage__426', 'inverter_temp__432',
+        'temp_diff_1', 'temp_diff_2', 'temp_diff_3', 'power_ratio', 'voltage_ratio',
+        'irradiance_rolling_mean', 'power_rolling_mean', 'time_of_day'
+    ]
+    
+    for i in range(len(data) - sequence_length):
+        # Input: previous sequence_length hours of all features
+        X.append(data.iloc[i:i + sequence_length][feature_columns].values)
+        # Output: next hour's PV power
+        y.append(data.iloc[i + sequence_length]['dc_power__422'])
+    
+    X = np.array(X)
+    y = np.array(y).reshape(-1, 1)
+    
+    # Add feature engineering
+    X = add_engineered_features(X)
+    
+    # Scale features and target
+    feature_scaler = StandardScaler()
+    target_scaler = MinMaxScaler(feature_range=(0, 1))
+    
+    # Reshape X for scaling
+    n_samples, seq_len, n_features = X.shape
+    X_reshaped = X.reshape(-1, n_features)
+    X_scaled = feature_scaler.fit_transform(X_reshaped)
+    X = X_scaled.reshape(n_samples, seq_len, n_features)
+    
+    # Scale target
+    y = target_scaler.fit_transform(y)
+    
+    # Validate final shapes and values
+    print("\nSequence Creation Summary:")
+    print("=" * 50)
+    print(f"Input shape: {X.shape}, Target shape: {y.shape}")
+    print(f"Input range: [{X.min():.3f}, {X.max():.3f}]")
+    print(f"Target range: [{y.min():.3f}, {y.max():.3f}]")
+    print(f"Target mean: {y.mean():.3f}")
+    print(f"Target std: {y.std():.3f}")
+    
+    # Split data
     train_size = int(0.7 * len(X))
     val_size = int(0.15 * len(X))
     
-    X_train, y_train = X[:train_size], y[:train_size]
-    X_val, y_val = X[train_size:train_size+val_size], y[train_size:train_size+val_size]
-    X_test, y_test = X[train_size+val_size:], y[train_size+val_size:]
+    X_train = X[:train_size]
+    y_train = y[:train_size]
+    X_val = X[train_size:train_size+val_size]
+    y_val = y[train_size:train_size+val_size]
+    X_test = X[train_size+val_size:]
+    y_test = y[train_size+val_size:]
     
     # Run experiments
+    experiment_runner = ExperimentRunner()
     experiment_runner.run_comparative_study(X_train, X_val, X_test, y_train, y_val, y_test)
+
+def add_engineered_features(X: np.ndarray) -> np.ndarray:
+    """
+    Add engineered features to enhance pattern recognition.
+    """
+    n_samples, seq_len, n_features = X.shape
     
-    print("\nExperiment completed. Results saved as:")
-    print("- performance_metrics.png")
-    print("- training_curves.png")
-    print("- model_architecture.png")
-    print("- prediction_comparison.png")
-    print("- quantum_circuit_analysis.png")
-    print("- feature_importance.png")
-    print("- performance_metrics.csv")
-    print("- training_history_*.csv files")
+    # Create new feature array with additional engineered features
+    n_new_features = n_features + 4  # Adding 4 new features
+    X_enhanced = np.zeros((n_samples, seq_len, n_new_features))
+    X_enhanced[:, :, :n_features] = X
+    
+    # Add rolling statistics as new features
+    for i in range(n_samples):
+        # Rolling mean (last 6 hours)
+        X_enhanced[i, :, n_features] = np.convolve(X[i, :, 0], 
+                                                 np.ones(6)/6, mode='same')
+        # Rolling std (last 6 hours)
+        X_enhanced[i, :, n_features+1] = np.array([np.std(X[i, max(0, j-6):j+1, 0]) 
+                                                 for j in range(seq_len)])
+        # Hour of day pattern (assuming 24-hour cycle)
+        X_enhanced[i, :, n_features+2] = np.sin(2 * np.pi * np.arange(seq_len) / 24)
+        # Day of week pattern (assuming 7-day cycle)
+        X_enhanced[i, :, n_features+3] = np.sin(2 * np.pi * np.arange(seq_len) / (24*7))
+    
+    return X_enhanced
 
 if __name__ == "__main__":
     main()
