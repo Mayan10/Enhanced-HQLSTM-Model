@@ -15,7 +15,7 @@ setup(
         "tqdm>=4.65.0",
     ],
     author="Mayan",
-    author_email="your.email@example.com",
+    author_email="mayan25sharma@gmail.com",
     description="Enhanced Quantum Machine Learning for PV Power Forecasting",
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
