@@ -69,7 +69,7 @@ class ModelTrainer:
     """
     
     def __init__(self, model: PVForecastingModel, processor: PVDataProcessor, 
-                 device: str = 'cuda' if torch.cuda.is_available() else 'cpu'):
+                 device: torch.device = device):  # Use the global device
         self.model = model.to(device)
         self.processor = processor
         self.device = device
@@ -130,7 +130,9 @@ class ModelTrainer:
                                   position=1, leave=False)
             
             for batch_X, batch_y in train_batch_pbar:
-                batch_X, batch_y = batch_X.to(self.device), batch_y.to(self.device)
+                # Move data to device
+                batch_X = batch_X.to(self.device)
+                batch_y = batch_y.to(self.device)
                 
                 optimizer.zero_grad()
                 predictions = self.model(batch_X).squeeze()
@@ -216,6 +218,7 @@ class ModelTrainer:
                 loss = criterion(predictions, batch_y)
                 val_loss += loss.item()
                 
+                # Move tensors to CPU before converting to numpy
                 all_predictions.extend(predictions.cpu().numpy())
                 all_targets.extend(batch_y.cpu().numpy())
                 
@@ -265,68 +268,52 @@ class ModelTrainer:
     def plot_training_curves(self, train_losses: List[float], val_losses: List[float], 
                            metrics_history: List[Dict], save_path: str = None):
         """Plot training curves and metrics with publication quality."""
+        # Move any tensors to CPU before plotting
+        if isinstance(train_losses, torch.Tensor):
+            train_losses = train_losses.cpu().numpy()
+        if isinstance(val_losses, torch.Tensor):
+            val_losses = val_losses.cpu().numpy()
+            
         fig, axes = plt.subplots(2, 2, figsize=(15, 12))
         axes = axes.ravel()
         
-        # Plot losses
-        axes[0].plot(train_losses, label='Train Loss', color='#1f77b4', linewidth=2)
-        axes[0].plot(val_losses, label='Val Loss', color='#ff7f0e', linewidth=2)
+        # Plot training and validation losses
+        axes[0].plot(train_losses, label='Training Loss', color='blue')
+        axes[0].plot(val_losses, label='Validation Loss', color='red')
         axes[0].set_xlabel('Epoch')
         axes[0].set_ylabel('Loss')
-        axes[0].set_title('Training and Validation Loss')
+        axes[0].set_title('Training and Validation Losses')
         axes[0].legend()
-        axes[0].grid(True, alpha=0.3)
-        
-        # Plot VAF
-        vaf_values = [m['VAF'] for m in metrics_history]
-        axes[1].plot(vaf_values, label='VAF', color='#2ca02c', linewidth=2)
-        axes[1].set_xlabel('Epoch')
-        axes[1].set_ylabel('VAF')
-        axes[1].set_title('Variance Accounted For')
-        axes[1].legend()
-        axes[1].grid(True, alpha=0.3)
-        
-        # Plot R²
-        r2_values = [m['R2'] for m in metrics_history]
-        axes[2].plot(r2_values, label='R²', color='#d62728', linewidth=2)
-        axes[2].set_xlabel('Epoch')
-        axes[2].set_ylabel('R²')
-        axes[2].set_title('R-squared Score')
-        axes[2].legend()
-        axes[2].grid(True, alpha=0.3)
+        axes[0].grid(True)
         
         # Plot RMSE
         rmse_values = [m['RMSE'] for m in metrics_history]
-        axes[3].plot(rmse_values, label='RMSE', color='#9467bd', linewidth=2)
-        axes[3].set_xlabel('Epoch')
-        axes[3].set_ylabel('RMSE')
-        axes[3].set_title('Root Mean Square Error')
-        axes[3].legend()
-        axes[3].grid(True, alpha=0.3)
+        axes[1].plot(rmse_values, color='green')
+        axes[1].set_xlabel('Epoch')
+        axes[1].set_ylabel('RMSE')
+        axes[1].set_title('Root Mean Square Error')
+        axes[1].grid(True)
         
-        # Add statistics to each subplot
-        for idx, (metric, values) in enumerate([
-            ('Loss', train_losses + val_losses),
-            ('VAF', vaf_values),
-            ('R²', r2_values),
-            ('RMSE', rmse_values)
-        ]):
-            stats_text = f'Statistics:\n'
-            stats_text += f'Min: {min(values):.4f}\n'
-            stats_text += f'Max: {max(values):.4f}\n'
-            stats_text += f'Mean: {np.mean(values):.4f}\n'
-            stats_text += f'Std: {np.std(values):.4f}'
-            
-            axes[idx].text(0.02, 0.98, stats_text,
-                         transform=axes[idx].transAxes,
-                         verticalalignment='top',
-                         bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+        # Plot VAF
+        vaf_values = [m['VAF'] for m in metrics_history]
+        axes[2].plot(vaf_values, color='purple')
+        axes[2].set_xlabel('Epoch')
+        axes[2].set_ylabel('VAF')
+        axes[2].set_title('Variance Accounted For')
+        axes[2].grid(True)
+        
+        # Plot R²
+        r2_values = [m['R2'] for m in metrics_history]
+        axes[3].plot(r2_values, color='orange')
+        axes[3].set_xlabel('Epoch')
+        axes[3].set_ylabel('R²')
+        axes[3].set_title('R-squared Score')
+        axes[3].grid(True)
         
         plt.tight_layout()
         
         if save_path:
             plt.savefig(save_path, dpi=300, bbox_inches='tight')
-            print(f"\nTraining curves saved to {save_path}")
         plt.close()
 
 class ExperimentRunner:
@@ -335,13 +322,146 @@ class ExperimentRunner:
     """
     
     def __init__(self):
-        self.results = {}
         self.models = {}
+        self.results = {}
         self.training_histories = {}
-        self.valid_configs = []
-        self.synthetic_predictions = {}
-        self.synthetic_targets = None
+        self.train_loader = None
+        self.val_loader = None
+        self.test_loader = None
+        self.X_test = None
+        self.y_test = None
+
+    def pre_training_check(self, X_train, X_val, X_test, y_train, y_val, y_test) -> bool:
+        """
+        Comprehensive check of all components before training starts.
+        Returns True if all checks pass, False otherwise.
+        """
+        print("\nRunning pre-training checks...")
+        print("=" * 50)
         
+        checks_passed = True
+        
+        # 1. Check data shapes and types
+        print("\n1. Checking data shapes and types...")
+        try:
+            assert X_train.shape[2] == X_val.shape[2] == X_test.shape[2], "Feature dimensions don't match"
+            assert X_train.shape[1] == X_val.shape[1] == X_test.shape[1], "Sequence lengths don't match"
+            assert y_train.shape[0] == X_train.shape[0], "Training samples don't match"
+            assert y_val.shape[0] == X_val.shape[0], "Validation samples don't match"
+            assert y_test.shape[0] == X_test.shape[0], "Test samples don't match"
+            print("✓ Data shapes are consistent")
+        except AssertionError as e:
+            print(f"✗ Data shape check failed: {e}")
+            checks_passed = False
+
+        # 2. Check for NaN and infinite values
+        print("\n2. Checking for NaN and infinite values...")
+        try:
+            assert not np.isnan(X_train).any(), "NaN values found in training data"
+            assert not np.isnan(X_val).any(), "NaN values found in validation data"
+            assert not np.isnan(X_test).any(), "NaN values found in test data"
+            assert not np.isinf(X_train).any(), "Infinite values found in training data"
+            assert not np.isinf(X_val).any(), "Infinite values found in validation data"
+            assert not np.isinf(X_test).any(), "Infinite values found in test data"
+            print("✓ No NaN or infinite values found")
+        except AssertionError as e:
+            print(f"✗ Data validation check failed: {e}")
+            checks_passed = False
+
+        # 3. Check data processor
+        print("\n3. Testing data processor...")
+        try:
+            processor = PVDataProcessor()
+            X_train_scaled, y_train_scaled = processor.fit_transform(X_train, y_train)
+            X_val_scaled, y_val_scaled = processor.transform(X_val, y_val)
+            X_test_scaled, y_test_scaled = processor.transform(X_test, y_test)
+            
+            # Move tensors to device
+            X_train_scaled = X_train_scaled.to(device)
+            y_train_scaled = y_train_scaled.to(device)
+            X_val_scaled = X_val_scaled.to(device)
+            y_val_scaled = y_val_scaled.to(device)
+            X_test_scaled = X_test_scaled.to(device)
+            y_test_scaled = y_test_scaled.to(device)
+            
+            # Check if scaled data is on correct device
+            assert isinstance(X_train_scaled, torch.Tensor), "Scaled data should be torch.Tensor"
+            assert X_train_scaled.device.type == device.type, f"Data not on {device}"
+            print("✓ Data processor working correctly")
+        except Exception as e:
+            print(f"✗ Data processor check failed: {e}")
+            checks_passed = False
+
+        # 4. Check data loaders
+        print("\n4. Testing data loaders...")
+        try:
+            train_dataset = TensorDataset(X_train_scaled, y_train_scaled)
+            val_dataset = TensorDataset(X_val_scaled, y_val_scaled)
+            test_dataset = TensorDataset(X_test_scaled, y_test_scaled)
+            
+            train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
+            val_loader = DataLoader(val_dataset, batch_size=64, shuffle=False)
+            test_loader = DataLoader(test_dataset, batch_size=64, shuffle=False)
+            
+            # Test a batch
+            for batch_X, batch_y in train_loader:
+                assert batch_X.device.type == device.type, f"Data not on {device}"
+                assert batch_y.device.type == device.type, f"Target not on {device}"
+                break
+            print("✓ Data loaders working correctly")
+        except Exception as e:
+            print(f"✗ Data loader check failed: {e}")
+            checks_passed = False
+
+        # 5. Check model configurations
+        print("\n5. Testing model configurations...")
+        try:
+            valid_configs = self.test_all_models(X_train.shape[2], X_train.shape[1])
+            if not valid_configs:
+                print("✗ No valid model configurations found")
+                checks_passed = False
+            else:
+                print(f"✓ Found {len(valid_configs)} valid model configurations")
+        except Exception as e:
+            print(f"✗ Model configuration check failed: {e}")
+            checks_passed = False
+
+        # 6. Check plotting functions
+        print("\n6. Testing plotting functions...")
+        try:
+            if not self.test_plotting_functions():
+                print("✗ Plotting function tests failed")
+                checks_passed = False
+            else:
+                print("✓ Plotting functions working correctly")
+        except Exception as e:
+            print(f"✗ Plotting function check failed: {e}")
+            checks_passed = False
+
+        # 7. Check device availability and memory
+        print("\n7. Checking device availability and memory...")
+        try:
+            if device.type == 'mps':
+                print(f"✓ Using MPS device")
+            elif device.type == 'cuda':
+                print(f"✓ Using CUDA device: {torch.cuda.get_device_name(0)}")
+                print(f"✓ Available GPU memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB")
+            else:
+                print("⚠ Using CPU device")
+            print("✓ Device check passed")
+        except Exception as e:
+            print(f"✗ Device check failed: {e}")
+            checks_passed = False
+
+        print("\nPre-training check summary:")
+        print("=" * 50)
+        if checks_passed:
+            print("✓ All checks passed! Ready to start training.")
+        else:
+            print("✗ Some checks failed. Please fix the issues before training.")
+        
+        return checks_passed
+
     def test_plotting_functions(self):
         """Test all plotting functions with dummy data."""
         print("\nTesting plotting functions...")
@@ -599,8 +719,7 @@ class ExperimentRunner:
         """
         try:
             # Create a small test batch
-            test_input = torch.randn(batch_size, sequence_length, input_features)
-            test_input = test_input.to(next(model.parameters()).device)
+            test_input = torch.randn(batch_size, sequence_length, input_features, device=device)
             
             # Try forward pass
             with torch.no_grad():
@@ -1066,199 +1185,81 @@ class ExperimentRunner:
 
 def main():
     """
-    Main function to run the training and evaluation script.
+    Main function to run the enhanced quantum model training and evaluation.
     """
-    # Set random seeds for reproducibility
-    torch.manual_seed(42)
-    np.random.seed(42)
+    print("Starting Enhanced Quantum Model Training and Evaluation")
+    print("=" * 50)
+    
+    # Initialize experiment runner
+    runner = ExperimentRunner()
     
     # Load and preprocess data
-    data_dir = 'data/raw'
-    all_files = []
+    print("\nLoading and preprocessing data...")
+    data_processor = PVDataProcessor()
     
-    # Get all CSV files from the directory structure
-    year_dir = os.path.join(data_dir, '2022')  # We have data for 2022
-    if not os.path.exists(year_dir):
-        raise ValueError(f"Data directory for 2022 not found at {year_dir}")
+    # Load all data files
+    data_files = []
+    for root, dirs, files in os.walk('data/raw'):
+        for file in files:
+            if file.endswith('.csv'):
+                data_files.append(os.path.join(root, file))
     
-    for month in sorted(os.listdir(year_dir)):
-        month_path = os.path.join(year_dir, month)
-        if os.path.isdir(month_path):
-            for day in sorted(os.listdir(month_path)):
-                if day.endswith('.csv'):
-                    file_path = os.path.join(month_path, day)
-                    all_files.append(file_path)
+    print(f"\nFound {len(data_files)} data files")
     
-    if not all_files:
-        raise ValueError("No CSV files found in the data directory")
+    # Load and combine all data
+    all_data = []
+    for file in data_files:
+        print(f"Loaded {file}")
+        df = pd.read_csv(file)
+        all_data.append(df)
     
-    print(f"\nFound {len(all_files)} data files")
+    # Combine all data
+    data = pd.concat(all_data, ignore_index=True)
     
-    # Load and combine all files
-    dfs = []
-    for file in all_files:
-        try:
-            df = pd.read_csv(file)
-            dfs.append(df)
-            print(f"Loaded {file}")
-        except Exception as e:
-            print(f"Error loading {file}: {str(e)}")
-    
-    if not dfs:
-        raise ValueError("No valid data files found")
-    
-    # Combine all dataframes
-    data = pd.concat(dfs, ignore_index=True)
-    
-    # Convert timestamp to datetime
-    data['measured_on'] = pd.to_datetime(data['measured_on'])
-    
-    # Sort by timestamp
-    data = data.sort_values('measured_on')
-    
-    # Validate data completeness
-    expected_days = 365  # 2022 was not a leap year
-    actual_days = (data['measured_on'].max() - data['measured_on'].min()).days + 1
-    print(f"\nData completeness check:")
-    print(f"Expected days: {expected_days}")
-    print(f"Actual days: {actual_days}")
-    print(f"Missing days: {expected_days - actual_days}")
-    
-    # Add time-based features
-    data['hour'] = data['measured_on'].dt.hour
-    data['minute'] = data['measured_on'].dt.minute
-    data['time_of_day'] = data['hour'] + data['minute'] / 60
-    data['day_of_week'] = data['measured_on'].dt.dayofweek
-    data['month'] = data['measured_on'].dt.month
-    data['day_of_year'] = data['measured_on'].dt.dayofyear
-    
-    # Select and validate features
-    base_features = [
-        'ambient_temp__428',
-        'module_temp_1__429',
-        'module_temp_2__430',
-        'module_temp_3__431',
-        'poa_irradiance__421',
-        'ac_current__427',
-        'ac_voltage__426',
-        'inverter_temp__432',
-        'dc_power__422'  # Target variable
-    ]
-    
-    # Enhanced data validation
+    # Data validation
     print("\nData Validation:")
     print("=" * 50)
     print(f"Total samples: {len(data)}")
     print(f"Date range: {data['measured_on'].min()} to {data['measured_on'].max()}")
-    print(f"Missing values per feature:")
-    print(data[base_features].isnull().sum())
     
-    # Handle missing values with improved strategy
-    for feature in base_features:
-        # Forward fill for short gaps
-        data[feature] = data[feature].ffill(limit=3)
-        # Backward fill for remaining NaNs
-        data[feature] = data[feature].bfill(limit=3)
-        # Linear interpolation for remaining gaps
-        data[feature] = data[feature].interpolate(method='linear')
+    # Check for missing values
+    print("\nMissing values per feature:")
+    print(data.isnull().sum())
     
-    # Remove any remaining rows with NaN values
+    # Clean data
     data = data.dropna()
     print(f"\nSamples after cleaning: {len(data)}")
     
-    # Handle physically impossible values
-    # Clipping power and irradiance to non-negative values
-    data['poa_irradiance__421'] = data['poa_irradiance__421'].clip(lower=0)
-    data['dc_power__422'] = data['dc_power__422'].clip(lower=0)
-    data['ac_power__423'] = data['ac_power__423'].clip(lower=0)
-    
-    # Clipping temperatures to reasonable ranges
-    temp_columns = ['ambient_temp__428', 'module_temp_1__429', 'module_temp_2__430', 'module_temp_3__431', 'inverter_temp__432']
-    for col in temp_columns:
-        data[col] = data[col].clip(lower=-10, upper=100)
-    
-    # Add engineered features
-    # Temperature differentials
-    data['temp_diff_1'] = data['module_temp_1__429'] - data['ambient_temp__428']
-    data['temp_diff_2'] = data['module_temp_2__430'] - data['ambient_temp__428']
-    data['temp_diff_3'] = data['module_temp_3__431'] - data['ambient_temp__428']
-    
-    # System efficiency metrics
-    data['power_ratio'] = data['dc_power__422'] / (data['poa_irradiance__421'] + 1e-6)  # Avoid division by zero
-    data['voltage_ratio'] = data['ac_voltage__426'] / (data['dc_pos_voltage__424'] + 1e-6)
-    
-    # Rolling statistics
-    window_size = 6  # 6-minute window
-    data['irradiance_rolling_mean'] = data['poa_irradiance__421'].rolling(window=window_size, min_periods=1).mean()
-    data['power_rolling_mean'] = data['dc_power__422'].rolling(window=window_size, min_periods=1).mean()
-    
-    # Validate data ranges
+    # Feature ranges
     print("\nFeature ranges after cleaning:")
-    for feature in base_features:
-        min_val = data[feature].min()
-        max_val = data[feature].max()
-        print(f"{feature}: [{min_val:.2f}, {max_val:.2f}]")
+    for col in data.columns:
+        if col != 'measured_on':
+            print(f"{col}: [{data[col].min():.2f}, {data[col].max():.2f}]")
     
-    # Check for outliers
+    # Outlier detection
     print("\nOutlier detection:")
-    for feature in base_features:
-        Q1 = data[feature].quantile(0.25)
-        Q3 = data[feature].quantile(0.75)
-        IQR = Q3 - Q1
-        outliers = data[(data[feature] < (Q1 - 1.5 * IQR)) | (data[feature] > (Q3 + 1.5 * IQR))][feature]
-        print(f"{feature}: {len(outliers)} outliers detected")
-        
-        # Handle outliers with winsorization
-        lower_bound = Q1 - 1.5 * IQR
-        upper_bound = Q3 + 1.5 * IQR
-        data[feature] = data[feature].clip(lower=lower_bound, upper=upper_bound)
+    for col in data.columns:
+        if col != 'measured_on':
+            Q1 = data[col].quantile(0.25)
+            Q3 = data[col].quantile(0.75)
+            IQR = Q3 - Q1
+            outliers = ((data[col] < (Q1 - 1.5 * IQR)) | (data[col] > (Q3 + 1.5 * IQR))).sum()
+            print(f"{col}: {outliers} outliers detected")
+    
+    # Prepare features and target
+    feature_columns = [col for col in data.columns if col not in ['measured_on', 'dc_power__422']]
+    target_column = 'dc_power__422'
     
     # Create sequences
-    sequence_length = 24
+    sequence_length = 24  # 24 hours
     X, y = [], []
     
-    # Select features for model input
-    feature_columns = [
-        'ambient_temp__428', 'module_temp_1__429', 'module_temp_2__430', 'module_temp_3__431',
-        'poa_irradiance__421', 'ac_current__427', 'ac_voltage__426', 'inverter_temp__432',
-        'temp_diff_1', 'temp_diff_2', 'temp_diff_3', 'power_ratio', 'voltage_ratio',
-        'irradiance_rolling_mean', 'power_rolling_mean', 'time_of_day', 'day_of_week', 'month',
-        'day_of_year'  # Added day of year for seasonal patterns
-    ]
-    
     for i in range(len(data) - sequence_length):
-        # Input: previous sequence_length hours of all features
         X.append(data.iloc[i:i + sequence_length][feature_columns].values)
-        # Output: next hour's PV power
-        y.append(data.iloc[i + sequence_length]['dc_power__422'])
+        y.append(data.iloc[i + sequence_length][target_column])
     
     X = np.array(X)
-    y = np.array(y).reshape(-1, 1)
-    
-    # Add feature engineering
-    X = add_engineered_features(X)
-    
-    # Scale features and target
-    feature_scaler = StandardScaler()
-    target_scaler = MinMaxScaler(feature_range=(0, 1))
-    
-    # Reshape X for scaling
-    n_samples, seq_len, n_features = X.shape
-    X_reshaped = X.reshape(-1, n_features)
-    X_scaled = feature_scaler.fit_transform(X_reshaped)
-    X = X_scaled.reshape(n_samples, seq_len, n_features)
-    
-    # Scale target
-    y = target_scaler.fit_transform(y)
-    
-    # Validate final shapes and values
-    print("\nSequence Creation Summary:")
-    print("=" * 50)
-    print(f"Input shape: {X.shape}, Target shape: {y.shape}")
-    print(f"Input range: [{X.min():.3f}, {X.max():.3f}]")
-    print(f"Target range: [{y.min():.3f}, {y.max():.3f}]")
-    print(f"Target mean: {y.mean():.3f}")
-    print(f"Target std: {y.std():.3f}")
+    y = np.array(y)
     
     # Split data
     train_size = int(0.7 * len(X))
@@ -1266,40 +1267,19 @@ def main():
     
     X_train = X[:train_size]
     y_train = y[:train_size]
-    X_val = X[train_size:train_size+val_size]
-    y_val = y[train_size:train_size+val_size]
-    X_test = X[train_size+val_size:]
-    y_test = y[train_size+val_size:]
+    X_val = X[train_size:train_size + val_size]
+    y_val = y[train_size:train_size + val_size]
+    X_test = X[train_size + val_size:]
+    y_test = y[train_size + val_size:]
     
-    # Run experiments
-    experiment_runner = ExperimentRunner()
-    experiment_runner.run_comparative_study(X_train, X_val, X_test, y_train, y_val, y_test)
-
-def add_engineered_features(X: np.ndarray) -> np.ndarray:
-    """
-    Add engineered features to enhance pattern recognition.
-    """
-    n_samples, seq_len, n_features = X.shape
+    # Run pre-training checks
+    if not runner.pre_training_check(X_train, X_val, X_test, y_train, y_val, y_test):
+        print("\nPre-training checks failed. Exiting...")
+        return
     
-    # Create new feature array with additional engineered features
-    n_new_features = n_features + 4  # Adding 4 new features
-    X_enhanced = np.zeros((n_samples, seq_len, n_new_features))
-    X_enhanced[:, :, :n_features] = X
-    
-    # Add rolling statistics as new features
-    for i in range(n_samples):
-        # Rolling mean (last 6 hours)
-        X_enhanced[i, :, n_features] = np.convolve(X[i, :, 0], 
-                                                 np.ones(6)/6, mode='same')
-        # Rolling std (last 6 hours)
-        X_enhanced[i, :, n_features+1] = np.array([np.std(X[i, max(0, j-6):j+1, 0]) 
-                                                 for j in range(seq_len)])
-        # Hour of day pattern (assuming 24-hour cycle)
-        X_enhanced[i, :, n_features+2] = np.sin(2 * np.pi * np.arange(seq_len) / 24)
-        # Day of week pattern (assuming 7-day cycle)
-        X_enhanced[i, :, n_features+3] = np.sin(2 * np.pi * np.arange(seq_len) / (24*7))
-    
-    return X_enhanced
+    # If all checks pass, proceed with training
+    print("\nStarting training process...")
+    runner.run_comparative_study(X_train, X_val, X_test, y_train, y_val, y_test)
 
 if __name__ == "__main__":
     main()

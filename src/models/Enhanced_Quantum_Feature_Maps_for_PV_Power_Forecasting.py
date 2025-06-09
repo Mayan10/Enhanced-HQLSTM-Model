@@ -8,6 +8,10 @@ from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from sklearn.metrics import mean_squared_error, mean_absolute_error
 import warnings
 
+# Set device to MPS if available (Apple Silicon)
+device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+print(f"Using device: {device}")
+
 class QuantumFeatureMap:
     """
     Simplified but effective quantum feature maps for PV forecasting.
@@ -16,23 +20,41 @@ class QuantumFeatureMap:
     def __init__(self, n_qubits: int, encoding_type: str = "angle"):
         self.n_qubits = n_qubits
         self.encoding_type = encoding_type
+        self.dev = qml.device("default.qubit", wires=n_qubits)
         
     def angle_encoding(self, x: torch.Tensor, wires: List[int]):
         """Simple angle encoding - most stable for training."""
+        # Move input to CPU for quantum operations
+        x = x.cpu()
         for i, wire in enumerate(wires):
             if i < len(x):
                 # Scale input to reasonable range for rotations
-                angle = x[i] * np.pi  # Scale to [-π, π]
+                angle = x[i].item() * np.pi  # Scale to [-π, π]
                 qml.RY(angle, wires=wire)
                 
     def fourier_encoding(self, x: torch.Tensor, wires: List[int]):
         """Simplified Fourier encoding with fewer parameters."""
+        # Move input to CPU for quantum operations
+        x = x.cpu()
         frequencies = [1.0, 2.0]  # Reduced complexity
         
         for i, wire in enumerate(wires):
             if i < len(x):
                 for freq in frequencies:
-                    qml.RZ(freq * x[i], wires=wire)
+                    qml.RZ(freq * x[i].item(), wires=wire)
+                    
+    def __call__(self, x: torch.Tensor) -> None:
+        """Apply the quantum feature map to input data."""
+        wires = list(range(self.n_qubits))
+        
+        # Clip inputs to prevent numerical issues
+        x = torch.clamp(x, -1.0, 1.0)
+        
+        # Apply encoding based on type
+        if self.encoding_type == "fourier":
+            self.fourier_encoding(x, wires)
+        else:  # Default angle encoding
+            self.angle_encoding(x, wires)
 
 class QuantumLayer(nn.Module):
     """
@@ -55,53 +77,64 @@ class QuantumLayer(nn.Module):
         self.qnode = qml.QNode(self.quantum_circuit, self.dev, interface="torch")
         
     def quantum_circuit(self, inputs, theta):
-        """Simplified quantum circuit."""
-        wires = list(range(self.n_qubits))
+        """Simplified quantum circuit with proper operation order."""
+        # Move inputs to CPU for quantum operations
+        inputs = inputs.cpu()
+        theta = theta.cpu()
         
-        # Clip inputs to prevent numerical issues
-        inputs = torch.clamp(inputs, -1.0, 1.0)
+        # Apply feature map first
+        self.feature_map(inputs)
         
-        # Feature encoding
-        if self.encoding_type == "fourier":
-            self.feature_map.fourier_encoding(inputs, wires)
-        else:  # Default angle encoding
-            self.feature_map.angle_encoding(inputs, wires)
-        
-        # Variational layers
+        # Then apply variational layers
         for layer in range(self.n_layers):
             # Parameterized rotations
             for i in range(self.n_qubits):
-                qml.Rot(theta[layer, i, 0], theta[layer, i, 1], theta[layer, i, 2], wires=i)
+                qml.Rot(theta[layer, i, 0].item(), 
+                       theta[layer, i, 1].item(), 
+                       theta[layer, i, 2].item(), 
+                       wires=i)
             
             # Simple entangling gates
             for i in range(self.n_qubits - 1):
                 qml.CNOT(wires=[i, i+1])
         
-        # Measurements
+        # Return measurements at the end
         return [qml.expval(qml.PauliZ(wires=i)) for i in range(self.n_qubits)]
     
-    def forward(self, inputs):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass with proper error handling."""
-        if inputs.dim() == 1:
-            inputs = inputs.unsqueeze(0)
-        
-        batch_size = inputs.shape[0]
-        outputs = []
-        
-        for i in range(batch_size):
-            sample = inputs[i]
-            try:
-                measurements = self.qnode(sample, self.theta)
-                if isinstance(measurements, list):
-                    measurements = torch.tensor(measurements, dtype=torch.float32)
-                outputs.append(measurements)
-            except Exception as e:
-                # Fallback to classical computation if quantum fails
-                warnings.warn(f"Quantum computation failed: {e}. Using classical fallback.")
-                classical_output = torch.tanh(sample[:self.n_qubits])
-                outputs.append(classical_output)
-        
-        return torch.stack(outputs, dim=0)
+        try:
+            # Move input to the correct device
+            x = x.to(device)
+            
+            # Process each sample in the batch
+            outputs = []
+            for i in range(x.shape[0]):
+                sample = x[i]
+                try:
+                    # Apply quantum circuit
+                    result = self.qnode(sample, self.theta)
+                    outputs.append(result)
+                except Exception as e:
+                    warnings.warn(f"Quantum computation failed for sample {i}: {e}")
+                    # Fallback to classical computation
+                    classical_output = torch.tanh(sample[:self.n_qubits])
+                    outputs.append(classical_output)
+            
+            # Convert to tensor and ensure correct shape
+            if isinstance(outputs[0], list):
+                outputs = torch.tensor(outputs, dtype=torch.float32)
+            else:
+                outputs = torch.stack(outputs)
+            
+            # Move output back to the original device
+            outputs = outputs.to(device)
+            return outputs
+            
+        except Exception as e:
+            warnings.warn(f"Forward pass failed: {e}")
+            # Fallback to classical computation
+            return torch.tanh(x[:, :self.n_qubits])
 
 class HybridQuantumLSTM(nn.Module):
     """
