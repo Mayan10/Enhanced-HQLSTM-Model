@@ -50,4 +50,83 @@ cd Enhanced-HQLSTM-Model
 ```
 
 2. Create and activate a virtual environment:
+```bash
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
 ```
+
+3. Install dependencies:
+```bash
+pip install -r requirements.txt
+```
+
+## Device Support
+
+The model supports different computing devices:
+- CPU: Default fallback device
+- MPS (Metal Performance Shaders): For Apple Silicon Macs
+- CUDA: For NVIDIA GPUs (experimental)
+
+Note: Quantum operations are performed on CPU regardless of the device setting, while classical operations can utilize the available hardware acceleration.
+
+## Usage
+
+1. Training the model:
+```python
+from src.training.Training_and_Evaluation_Script_for_Enhanced_QML_Models import ExperimentRunner
+
+# Initialize experiment runner
+experiment_runner = ExperimentRunner()
+
+# Run experiments with your data
+experiment_runner.run_comparative_study(X_train, X_val, X_test, y_train, y_val, y_test)
+```
+
+2. Using the model for predictions:
+```python
+from src.models.Enhanced_Quantum_Feature_Maps_for_PV_Power_Forecasting import PVForecastingModel
+
+# Initialize model
+model = PVForecastingModel(
+    input_features=5,
+    hidden_size=32,
+    n_qubits=4
+)
+
+# Make predictions
+predictions = model(input_data)
+```
+
+## Model Architecture
+
+The model combines:
+1. Quantum Feature Map: Encodes classical data into quantum states
+2. Quantum Layer: Processes quantum information using parameterized circuits
+3. Classical LSTM: Handles temporal dependencies
+4. Attention Mechanism: Focuses on relevant time steps
+
+## Training Process
+
+1. Data Preprocessing:
+   - Feature scaling
+   - Sequence creation
+   - Train/validation/test split
+
+2. Model Training:
+   - Automatic device selection
+   - Gradient clipping for stability
+   - Learning rate scheduling
+   - Early stopping
+
+3. Evaluation:
+   - Multiple metrics (RMSE, MAE, VAF)
+   - Visualization tools
+   - Model comparison
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
