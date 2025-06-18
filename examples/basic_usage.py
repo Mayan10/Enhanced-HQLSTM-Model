@@ -1,5 +1,7 @@
 """
-Basic example of using the Enhanced QML PV Forecasting package.
+Basic example showing how to use our Enhanced Quantum Machine Learning 
+solar power forecasting package. This demonstrates the complete pipeline 
+from data loading to model training and evaluation.
 """
 
 from src import (
@@ -9,13 +11,13 @@ from src import (
 )
 
 def main():
-    # Initialize data processor
+    # Set up our data processor to handle solar power data
     data_processor = PVDataProcessor(sequence_length=24)
     
-    # Load and preprocess data
+    # Load and preprocess our solar power data
     X, y = data_processor.load_and_preprocess_data()
     
-    # Split data into train/val/test
+    # Split our data into training, validation, and test sets
     train_size = int(0.7 * len(X))
     val_size = int(0.15 * len(X))
     
@@ -26,16 +28,16 @@ def main():
     X_test = X[train_size+val_size:]
     y_test = y[train_size+val_size:]
     
-    # Initialize experiment runner
+    # Set up our experiment runner to handle multiple model configurations
     experiment_runner = ExperimentRunner()
     
-    # Run comparative study
+    # Run our comparative study with different model architectures
     experiment_runner.run_comparative_study(
         X_train, X_val, X_test,
         y_train, y_val, y_test
     )
     
-    # Plot results
+    # Generate beautiful plots of our results
     experiment_runner.plot_results()
 
 if __name__ == "__main__":
