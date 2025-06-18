@@ -317,7 +317,7 @@ def calculate_metrics(y_true, y_pred):
         'MAPE': mape
     }
 
-def train_model(model, train_loader, val_loader, processor, epochs=100, lr=0.001):
+def train_model(model, train_loader, val_loader, processor, epochs=75, lr=0.001):
     """
     Training function with proper optimization and monitoring.
     """
@@ -484,7 +484,7 @@ def demo_enhanced_pv_forecasting():
     model = PVForecastingModel(input_features=5, hidden_size=64, n_qubits=4)
     
     trained_model, train_losses, val_losses = train_model(
-        model, train_loader, val_loader, processor, epochs=50, lr=0.001
+        model, train_loader, val_loader, processor, epochs=75, lr=0.001
     )
     
     # Test evaluation

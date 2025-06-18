@@ -101,7 +101,7 @@ class ModelTrainer:
         })
     
     def train(self, train_loader: DataLoader, val_loader: DataLoader, 
-              epochs: int = 100, lr: float = 0.001, patience: int = 20) -> Dict:
+              epochs: int = 75, lr: float = 0.001, patience: int = 20) -> Dict:
         """Train the model with proper optimization and monitoring."""
         optimizer = torch.optim.Adam(self.model.parameters(), lr=lr, weight_decay=1e-5)
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=10, factor=0.5)
@@ -693,7 +693,7 @@ class ExperimentRunner:
             training_history = trainer.train(
                 self.train_loader,
                 self.val_loader,
-                epochs=200,  # Increased epochs
+                epochs=75,  # Set to 75 epochs
                 lr=0.001,    # Learning rate
                 patience=30  # Increased patience for early stopping
             )
