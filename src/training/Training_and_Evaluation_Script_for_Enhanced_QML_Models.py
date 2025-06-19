@@ -31,6 +31,21 @@ print(f"Using device: {device}")
 os.makedirs('plots', exist_ok=True)
 os.makedirs('history', exist_ok=True)
 
+# Helper to convert numpy types to Python types for JSON
+def to_serializable(obj):
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, (np.float32, np.float64)):
+        return float(obj)
+    elif isinstance(obj, (np.int32, np.int64)):
+        return int(obj)
+    elif isinstance(obj, dict):
+        return {k: to_serializable(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [to_serializable(v) for v in obj]
+    else:
+        return obj
+
 class PVDataProcessor:
     """
     Handles all the data preprocessing for our solar power forecasting.
@@ -211,7 +226,7 @@ class ModelTrainer:
         }
         model_name = self.model.__class__.__name__
         with open(f'history/{model_name}_history.json', 'w') as f:
-            json.dump(history, f, indent=2)
+            json.dump(to_serializable(history), f, indent=2)
         return history
     
     def _validate(self, val_loader: DataLoader, criterion: nn.Module) -> Tuple[float, Dict]:
