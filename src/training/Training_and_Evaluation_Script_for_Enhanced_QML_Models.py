@@ -18,7 +18,8 @@ from tqdm import tqdm
 from src.models.Enhanced_Quantum_Feature_Maps_for_PV_Power_Forecasting import (
     PVForecastingModel,
     PVDataProcessor,
-    calculate_metrics
+    calculate_metrics,
+    HybridQuantumLSTM
 )
 
 # Let's use Apple Silicon's MPS if it's available for faster training
@@ -317,6 +318,38 @@ class ModelTrainer:
             plt.savefig(save_path, dpi=300, bbox_inches='tight')
         plt.show()
 
+class HybridHeadedModel(nn.Module):
+    def __init__(self, input_features, hidden_size=64, n_qubits=4, n_quantum_layers=1, encoding_type="angle"):
+        super().__init__()
+        self.hybrid = HybridQuantumLSTM(input_features, hidden_size, n_qubits, n_quantum_layers, encoding_type)
+        self.output_head = nn.Sequential(
+            nn.Linear(hidden_size, hidden_size // 2),
+            nn.ReLU(),
+            nn.Linear(hidden_size // 2, 1),
+            nn.Sigmoid()
+        )
+    def forward(self, x):
+        features = self.hybrid(x)
+        return self.output_head(features)
+
+class ClassicalLSTMModel(nn.Module):
+    def __init__(self, input_features, hidden_size=64, dropout=0.2):
+        super().__init__()
+        self.lstm = nn.LSTM(input_features, hidden_size, batch_first=True)
+        self.layer_norm = nn.LayerNorm(hidden_size)
+        self.output_layers = nn.Sequential(
+            nn.Linear(hidden_size, hidden_size // 2),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_size // 2, 1),
+            nn.Sigmoid()
+        )
+    def forward(self, x):
+        lstm_out, _ = self.lstm(x)
+        last_hidden = lstm_out[:, -1, :]
+        last_hidden = self.layer_norm(last_hidden)
+        return self.output_layers(last_hidden)
+
 class ExperimentRunner:
     """
     A comprehensive experiment runner that handles multiple model configurations,
@@ -395,6 +428,7 @@ class ExperimentRunner:
         print("5. Testing model creation...")
         try:
             test_model = PVForecastingModel(input_features=X_train.shape[-1], hidden_size=32, n_qubits=2)
+            test_model = test_model.to(device)
             print("   ✓ Model creation successful")
         except Exception as e:
             print(f"   ✗ Model creation failed: {e}")
@@ -403,7 +437,7 @@ class ExperimentRunner:
         # Test forward pass
         print("6. Testing forward pass...")
         try:
-            test_input = torch.randn(2, X_train.shape[1], X_train.shape[2])
+            test_input = torch.randn(2, X_train.shape[1], X_train.shape[2], device=device)
             with torch.no_grad():
                 test_output = test_model(test_input)
             assert test_output.shape == (2, 1), f"Expected shape (2, 1), got {test_output.shape}"
@@ -426,6 +460,54 @@ class ExperimentRunner:
         
         print("\nAll pre-training checks passed! ✓")
         return True
+
+    def run_comparative_study(self, X_train, X_val, X_test, y_train, y_val, y_test, epochs=75, lr=0.001, patience=20):
+        print("\n=== Comparative Study: Classical LSTM vs HybridQuantumLSTM vs Quantum-Enhanced Model ===\n")
+        processor = PVDataProcessor()
+        X_train_scaled, y_train_scaled = processor.fit_transform(X_train, y_train)
+        X_val_scaled, y_val_scaled = processor.transform(X_val, y_val)
+        X_test_scaled, y_test_scaled = processor.transform(X_test, y_test)
+        from torch.utils.data import TensorDataset, DataLoader
+        train_dataset = TensorDataset(X_train_scaled, y_train_scaled)
+        val_dataset = TensorDataset(X_val_scaled, y_val_scaled)
+        test_dataset = TensorDataset(X_test_scaled, y_test_scaled)
+        train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
+        val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False)
+        test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
+        # 1. Classical LSTM
+        print("\n--- Training Classical LSTM Model ---")
+        classical_model = ClassicalLSTMModel(input_features=X_train.shape[-1], hidden_size=64, dropout=0.2)
+        trainer_classical = ModelTrainer(classical_model, processor, device=device)
+        hist_classical = trainer_classical.train(train_loader, val_loader, epochs=epochs, lr=lr, patience=patience)
+        metrics_classical = trainer_classical.evaluate(test_loader)
+        # 2. HybridQuantumLSTM
+        print("\n--- Training HybridQuantumLSTM Model ---")
+        hybrid_model = HybridHeadedModel(input_features=X_train.shape[-1], hidden_size=64, n_qubits=4, n_quantum_layers=1, encoding_type="angle")
+        trainer_hybrid = ModelTrainer(hybrid_model, processor, device=device)
+        hist_hybrid = trainer_hybrid.train(train_loader, val_loader, epochs=epochs, lr=lr, patience=patience)
+        metrics_hybrid = trainer_hybrid.evaluate(test_loader)
+        # 3. Quantum-Enhanced Model
+        print("\n--- Training Quantum-Enhanced Model ---")
+        quantum_model = PVForecastingModel(input_features=X_train.shape[-1], hidden_size=64, n_qubits=4)
+        trainer_quantum = ModelTrainer(quantum_model, processor, device=device)
+        hist_quantum = trainer_quantum.train(train_loader, val_loader, epochs=epochs, lr=lr, patience=patience)
+        metrics_quantum = trainer_quantum.evaluate(test_loader)
+        # Print summary
+        print("\n=== Comparative Results ===")
+        print("Classical LSTM:")
+        for k, v in metrics_classical.items():
+            print(f"  {k}: {v}")
+        print("\nHybridQuantumLSTM:")
+        for k, v in metrics_hybrid.items():
+            print(f"  {k}: {v}")
+        print("\nQuantum-Enhanced Model:")
+        for k, v in metrics_quantum.items():
+            print(f"  {k}: {v}")
+        # Plot training curves
+        print("\nPlotting training curves...")
+        trainer_classical.plot_training_curves(hist_classical['train_losses'], hist_classical['val_losses'], hist_classical['metrics_history'], save_path=None)
+        trainer_hybrid.plot_training_curves(hist_hybrid['train_losses'], hist_hybrid['val_losses'], hist_hybrid['metrics_history'], save_path=None)
+        trainer_quantum.plot_training_curves(hist_quantum['train_losses'], hist_quantum['val_losses'], hist_quantum['metrics_history'], save_path=None)
 
 def main():
     """
