@@ -13,6 +13,7 @@ import warnings
 import os
 from datetime import datetime
 from tqdm import tqdm
+import json
 
 # Import our enhanced quantum models
 from src.models.Enhanced_Quantum_Feature_Maps_for_PV_Power_Forecasting import (
@@ -25,6 +26,10 @@ from src.models.Enhanced_Quantum_Feature_Maps_for_PV_Power_Forecasting import (
 # Let's use Apple Silicon's MPS if it's available for faster training
 device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
 print(f"Using device: {device}")
+
+# Ensure output directories exist
+os.makedirs('plots', exist_ok=True)
+os.makedirs('history', exist_ok=True)
 
 class PVDataProcessor:
     """
@@ -198,11 +203,16 @@ class ModelTrainer:
         if self.best_model_state is not None:
             self.model.load_state_dict(self.best_model_state)
         
-        return {
+        # After training, save history
+        history = {
             'train_losses': train_losses,
             'val_losses': val_losses,
             'metrics_history': metrics_history
         }
+        model_name = self.model.__class__.__name__
+        with open(f'history/{model_name}_history.json', 'w') as f:
+            json.dump(history, f, indent=2)
+        return history
     
     def _validate(self, val_loader: DataLoader, criterion: nn.Module) -> Tuple[float, Dict]:
         """Validate our model and return loss and performance metrics."""
@@ -269,7 +279,7 @@ class ModelTrainer:
         print(f"\nModel saved to {path}")
     
     def plot_training_curves(self, train_losses: List[float], val_losses: List[float], 
-                           metrics_history: List[Dict], save_path: str = None):
+                           metrics_history: List[Dict], save_path: str = None, model_name=None):
         """Plot beautiful training curves and metrics for publication."""
         # Move any tensors to CPU before plotting
         if isinstance(train_losses, torch.Tensor):
@@ -314,9 +324,11 @@ class ModelTrainer:
         axes[3].grid(True)
         
         plt.tight_layout()
-        if save_path:
-            plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        plt.show()
+        if not model_name:
+            model_name = self.model.__class__.__name__
+        save_path = save_path or f'plots/{model_name}_training_curves.png'
+        plt.savefig(save_path, dpi=400, bbox_inches='tight')
+        plt.close()
 
 class HybridHeadedModel(nn.Module):
     def __init__(self, input_features, hidden_size=64, n_qubits=4, n_quantum_layers=1, encoding_type="angle"):
@@ -508,6 +520,28 @@ class ExperimentRunner:
         trainer_classical.plot_training_curves(hist_classical['train_losses'], hist_classical['val_losses'], hist_classical['metrics_history'], save_path=None)
         trainer_hybrid.plot_training_curves(hist_hybrid['train_losses'], hist_hybrid['val_losses'], hist_hybrid['metrics_history'], save_path=None)
         trainer_quantum.plot_training_curves(hist_quantum['train_losses'], hist_quantum['val_losses'], hist_quantum['metrics_history'], save_path=None)
+        # Save and plot all insights
+        histories = {
+            'ClassicalLSTM': hist_classical,
+            'HybridQuantumLSTM': hist_hybrid,
+            'QuantumEnhanced': hist_quantum
+        }
+        # Plot all models' loss/metrics on one plot
+        for metric in ['train_losses', 'val_losses']:
+            plot_all_models_curves(histories, metric, f'plots/all_models_{metric}.png')
+        for metric in ['RMSE', 'MAE', 'VAF', 'MAPE']:
+            plot_all_models_curves({k: [m[metric] for m in v["metrics_history"]] for k,v in histories.items()}, metric, f'plots/all_models_{metric}.png')
+        # Pred vs True, Residuals, Boxplot, Bar chart
+        errors_dict = {}
+        metrics_dict = {'ClassicalLSTM': metrics_classical, 'HybridQuantumLSTM': metrics_hybrid, 'QuantumEnhanced': metrics_quantum}
+        for model_name, trainer, metrics, hist in zip(['ClassicalLSTM','HybridQuantumLSTM','QuantumEnhanced'], [trainer_classical,trainer_hybrid,trainer_quantum], [metrics_classical,metrics_hybrid,metrics_quantum], [hist_classical,hist_hybrid,hist_quantum]):
+            y_true = trainer.processor.inverse_transform_target(np.array(trainer._validate(test_loader, nn.MSELoss())[1]['y_true']))
+            y_pred = trainer.processor.inverse_transform_target(np.array(trainer._validate(test_loader, nn.MSELoss())[1]['y_pred']))
+            plot_pred_vs_true(y_true, y_pred, model_name, f'plots/{model_name}_pred_vs_true.png')
+            plot_residuals(y_true, y_pred, model_name, f'plots/{model_name}_residuals.png')
+            errors_dict[model_name] = np.abs(y_true - y_pred)
+        plot_boxplot_errors(errors_dict, 'plots/all_models_error_boxplot.png')
+        plot_bar_metrics(metrics_dict, 'plots/all_models_metrics_bar.png')
 
 def main():
     """
