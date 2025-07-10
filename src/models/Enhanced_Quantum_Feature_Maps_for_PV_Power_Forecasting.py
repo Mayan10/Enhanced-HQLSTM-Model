@@ -331,11 +331,15 @@ def calculate_metrics(y_true, y_pred):
         mape = np.mean(np.abs((y_true[non_zero_mask] - y_pred[non_zero_mask]) / y_true[non_zero_mask])) * 100
     else:
         mape = float('inf')
+
+    # Calculate Mean Bias Error (MBE)
+    mbe = np.mean(y_pred - y_true)
     
     return {
         'MSE': mse,
         'RMSE': rmse,
         'MAE': mae,
+        'MBE': mbe,
         'VAF': vaf,
         'R2': r2,
         'MAPE': mape

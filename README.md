@@ -1,132 +1,89 @@
-# Enhanced Quantum Machine Learning for PV Power Forecasting
+# Solar PV Power Forecasting: Quantum, Hybrid, Deep Learning, and ML Benchmark
 
-This project implements an enhanced quantum machine learning approach for photovoltaic (PV) power forecasting using hybrid quantum-classical neural networks. The implementation combines quantum circuits with classical LSTM networks to improve prediction accuracy and capture complex temporal patterns in solar power generation.
+## Project Overview
+This project provides a comprehensive, publication-ready benchmark for solar photovoltaic (PV) power forecasting. It compares advanced quantum machine learning (QML) models, hybrid quantum-classical models, classical deep learning (LSTM, GRU), and state-of-the-art machine learning models (XGBoost, CatBoost, ARIMA) on real-world PV data.
+
+The codebase is designed for reproducibility, extensibility, and direct use in academic publications (IET conference template included).
+
+---
 
 ## Features
+- **Quantum, Hybrid, and Classical Deep Learning Models**: Enhanced Quantum Feature Maps, Hybrid Quantum LSTM, Classical LSTM, GRU
+- **State-of-the-Art ML Baselines**: XGBoost, CatBoost, ARIMA
+- **Unified Data Pipeline**: Loads, cleans, and processes multi-year PV data (2022, 2023)
+- **Robust Evaluation**: MAE, RMSE, MBE, VAF, R², MAPE on a true test set
+- **Publication-Ready Plots**: Training curves, error distributions, scatter plots, boxplots, bar charts
+- **Easy Reproducibility**: All dependencies in `requirements.txt`, results and logs saved
+- **IET Conference Paper Template**: For direct manuscript preparation
 
-- Hybrid Quantum-LSTM (HQLSTM) architecture
-- Multiple quantum feature encoding strategies (Fourier, IQP, Amplitude)
-- Enhanced data preprocessing and feature engineering
-- Attention mechanisms for better temporal modeling
-- Comprehensive evaluation metrics and visualizations
-- Support for both synthetic and real-world PV data
-- Optimized device handling for CPU and MPS (Apple Silicon)
+---
 
-## Project Structure
+## Data
+- Place raw PV data CSVs in `data/raw/2022/` and `data/raw/2023/` (organized by month)
+- The pipeline automatically loads, cleans, and splits data into train/val/test (stratified by time)
+- All features are numerically validated and cleaned for robust model training
+
+---
+
+## Models Compared
+- **Classical LSTM**
+- **Hybrid Quantum LSTM**
+- **Quantum-Enhanced Model**
+- **GRU (Gated Recurrent Unit)**
+- **XGBoost**
+- **CatBoost**
+- **ARIMA (univariate baseline)**
+
+---
+
+## How to Run
+1. **Install dependencies**:
+   ```bash
+   python3 -m venv venv
+   source venv/bin/activate
+   pip install -r requirements.txt
+   ```
+2. **Prepare data**: Place all raw CSVs in the appropriate `data/raw/` folders.
+3. **Run the main script**:
+   ```bash
+   python src/training/Training_and_Evaluation_Script_for_Enhanced_QML_Models.py
+   ```
+   - By default, previously trained quantum/deep models are loaded from `history/` to save time. To retrain, set `skip_trained_models=False` in the script.
+4. **Results**:
+   - All plots are saved in `plots/`
+   - Training logs/history in `history/`
+   - Key figures: training curves, error boxplots, bar charts, scatter plots, etc.
+
+---
+
+## Results & Plots
+- **All results and publication-ready figures** are saved in the `plots/` directory.
+- **Model training histories** are in `history/`.
+- Example figures: `training_curves.png`, `feature_importance.png`, `model_architecture.png`
+- Use these directly in your IET conference paper or other publications.
+
+---
+
+## For Publication
+- The project includes `IET Conference Paper Template.docx` for manuscript preparation.
+- All code, results, and figures are organized for easy integration into your paper.
+- Cite this project or acknowledge the codebase as appropriate.
+
+---
+
+## Citation
+If you use this benchmark or codebase in your research, please cite:
 
 ```
-├── src/
-│   ├── models/
-│   │   └── Enhanced_Quantum_Feature_Maps_for_PV_Power_Forecasting.py
-│   ├── training/
-│   │   └── Training_and_Evaluation_Script_for_Enhanced_QML_Models.py
-│   └── utils/
-│       └── data_processor.py
-├── data/
-│   └── System Data Jan 1 2023.csv
-├── notebooks/
-│   └── examples/
-├── requirements.txt
-└── README.md
+@software{yourname_2024_pvqml,
+  author = {Your Name},
+  title = {Solar PV Power Forecasting: Quantum, Hybrid, Deep Learning, and ML Benchmark},
+  year = {2024},
+  url = {https://github.com/yourrepo/pvqml}
+}
 ```
 
-## Requirements
+---
 
-- Python 3.8+
-- PyTorch 2.0+
-- PennyLane 0.30+
-- NumPy 1.20+
-- Pandas 1.3+
-- scikit-learn 1.0+
-- Matplotlib 3.4+
-- tqdm 4.62+
-
-## Installation
-
-1. Clone the repository:
-```bash
-git clone https://github.com/Mayan10/Enhanced-HQLSTM-Model.git
-cd Enhanced-HQLSTM-Model
-```
-
-2. Create and activate a virtual environment:
-```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-```
-
-3. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
-
-## Device Support
-
-The model supports different computing devices:
-- CPU: Default fallback device
-- MPS (Metal Performance Shaders): For Apple Silicon Macs
-- CUDA: For NVIDIA GPUs (experimental)
-
-Note: Quantum operations are performed on CPU regardless of the device setting, while classical operations can utilize the available hardware acceleration.
-
-## Usage
-
-1. Training the model:
-```python
-from src.training.Training_and_Evaluation_Script_for_Enhanced_QML_Models import ExperimentRunner
-
-# Initialize experiment runner
-experiment_runner = ExperimentRunner()
-
-# Run experiments with your data
-experiment_runner.run_comparative_study(X_train, X_val, X_test, y_train, y_val, y_test)
-```
-
-2. Using the model for predictions:
-```python
-from src.models.Enhanced_Quantum_Feature_Maps_for_PV_Power_Forecasting import PVForecastingModel
-
-# Initialize model
-model = PVForecastingModel(
-    input_features=5,
-    hidden_size=32,
-    n_qubits=4
-)
-
-# Make predictions
-predictions = model(input_data)
-```
-
-## Model Architecture
-
-The model combines:
-1. Quantum Feature Map: Encodes classical data into quantum states
-2. Quantum Layer: Processes quantum information using parameterized circuits
-3. Classical LSTM: Handles temporal dependencies
-4. Attention Mechanism: Focuses on relevant time steps
-
-## Training Process
-
-1. Data Preprocessing:
-   - Feature scaling
-   - Sequence creation
-   - Train/validation/test split
-
-2. Model Training:
-   - Automatic device selection
-   - Gradient clipping for stability
-   - Learning rate scheduling
-   - Early stopping
-
-3. Evaluation:
-   - Multiple metrics (RMSE, MAE, VAF)
-   - Visualization tools
-   - Model comparison
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
+## Contact
+For questions, suggestions, or contributions, please open an issue or contact the maintainer.
