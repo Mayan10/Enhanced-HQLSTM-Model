@@ -60,14 +60,6 @@ The codebase is designed for reproducibility, extensibility, and direct use in a
 - **All results and publication-ready figures** are saved in the `plots/` directory.
 - **Model training histories** are in `history/`.
 - Example figures: `training_curves.png`, `feature_importance.png`, `model_architecture.png`
-- Use these directly in your IET conference paper or other publications.
-
----
-
-## For Publication
-- The project includes `IET Conference Paper Template.docx` for manuscript preparation.
-- All code, results, and figures are organized for easy integration into your paper.
-- Cite this project or acknowledge the codebase as appropriate.
 
 ---
 
@@ -76,10 +68,10 @@ If you use this benchmark or codebase in your research, please cite:
 
 ```
 @software{yourname_2024_pvqml,
-  author = {Your Name},
+  author = {Mayan Sharma},
   title = {Solar PV Power Forecasting: Quantum, Hybrid, Deep Learning, and ML Benchmark},
   year = {2024},
-  url = {https://github.com/yourrepo/pvqml}
+  url = {https://github.com/Mayan10/Enhanced-HQLSTM-Model}
 }
 ```
 
