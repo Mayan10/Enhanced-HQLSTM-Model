@@ -1,81 +1,100 @@
-# Solar PV Power Forecasting: Quantum, Hybrid, Deep Learning, and ML Benchmark
+# Solar PV Power Forecasting: Quantum, Hybrid, Deep Learning & ML Benchmark
 
-## Project Overview
-This project provides a comprehensive, publication-ready benchmark for solar photovoltaic (PV) power forecasting. It compares advanced quantum machine learning (QML) models, hybrid quantum-classical models, classical deep learning (LSTM, GRU), and state-of-the-art machine learning models (XGBoost, CatBoost, ARIMA) on real-world PV data.
+A comprehensive benchmark for solar photovoltaic (PV) power forecasting, comparing quantum machine learning (QML), hybrid quantum-classical, and classical models on real-world PV data.
 
-The codebase is designed for reproducibility, extensibility, and direct use in academic publications (IET conference template included).
-
----
-
-## Features
-- **Quantum, Hybrid, and Classical Deep Learning Models**: Enhanced Quantum Feature Maps, Hybrid Quantum LSTM, Classical LSTM, GRU
-- **State-of-the-Art ML Baselines**: XGBoost, CatBoost, ARIMA
-- **Unified Data Pipeline**: Loads, cleans, and processes multi-year PV data (2022, 2023)
-- **Robust Evaluation**: MAE, RMSE, MBE, VAF, R², MAPE on a true test set
-- **Publication-Ready Plots**: Training curves, error distributions, scatter plots, boxplots, bar charts
-- **Easy Reproducibility**: All dependencies in `requirements.txt`, results and logs saved
-- **IET Conference Paper Template**: For direct manuscript preparation
-
----
-
-## Data
-- Place raw PV data CSVs in `data/raw/2022/` and `data/raw/2023/` (organized by month)
-- The pipeline automatically loads, cleans, and splits data into train/val/test (stratified by time)
-- All features are numerically validated and cleaned for robust model training
+Designed for reproducibility and direct use in academic publications — IET conference paper template included.
 
 ---
 
 ## Models Compared
-- **Classical LSTM**
-- **Hybrid Quantum LSTM**
-- **Quantum-Enhanced Model**
-- **GRU (Gated Recurrent Unit)**
-- **XGBoost**
-- **CatBoost**
-- **ARIMA (univariate baseline)**
+
+| Model | Type |
+|-------|------|
+| Classical LSTM | Deep Learning |
+| GRU | Deep Learning |
+| Hybrid Quantum LSTM | Quantum-Classical |
+| Quantum-Enhanced Model | Quantum ML |
+| XGBoost | ML Baseline |
+| CatBoost | ML Baseline |
+| ARIMA | Statistical Baseline |
 
 ---
 
-## How to Run
-1. **Install dependencies**:
-   ```bash
-   python3 -m venv venv
-   source venv/bin/activate
-   pip install -r requirements.txt
-   ```
-2. **Prepare data**: Place all raw CSVs in the appropriate `data/raw/` folders.
-3. **Run the main script**:
-   ```bash
-   python src/training/Training_and_Evaluation_Script_for_Enhanced_QML_Models.py
-   ```
-   - By default, previously trained quantum/deep models are loaded from `history/` to save time. To retrain, set `skip_trained_models=False` in the script.
-4. **Results**:
-   - All plots are saved in `plots/`
-   - Training logs/history in `history/`
-   - Key figures: training curves, error boxplots, bar charts, scatter plots, etc.
+## Features
+
+- Unified data pipeline for multi-year PV data (2022, 2023) with automatic cleaning and splitting
+- Evaluation across MAE, RMSE, MBE, VAF, R², and MAPE on a held-out test set
+- Publication-ready figures: training curves, error distributions, scatter plots, boxplots, bar charts
+- IET conference LaTeX template for direct manuscript preparation
+- All results, logs, and plots saved automatically
 
 ---
 
-## Results & Plots
-- **All results and publication-ready figures** are saved in the `plots/` directory.
-- **Model training histories** are in `history/`.
-- Example figures: `training_curves.png`, `feature_importance.png`, `model_architecture.png`
+## Data Setup
+
+Place raw PV CSVs in:
+```
+data/raw/2022/   ← organized by month
+data/raw/2023/   ← organized by month
+```
+
+The pipeline handles loading, cleaning, and stratified train/val/test splitting automatically.
+
+---
+
+## Getting Started
+
+**1. Set up the environment**
+```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+**2. Run training and evaluation**
+```bash
+python src/training/Training_and_Evaluation_Script_for_Enhanced_QML_Models.py
+```
+
+By default, previously trained quantum and deep learning models are loaded from `history/` to save time. To force a full retrain, set `skip_trained_models=False` in the script.
+
+---
+
+## Outputs
+
+| Location | Contents |
+|----------|----------|
+| `plots/` | All publication-ready figures |
+| `history/` | Model training logs and saved weights |
+
+Key figures include `training_curves.png`, `feature_importance.png`, and `model_architecture.png`.
 
 ---
 
 ## Citation
-If you use this benchmark or codebase in your research, please cite:
 
-```
-@software{yourname_2024_pvqml,
+If you use this benchmark in your research, please cite:
+
+```bibtex
+@software{mayan_sharma_2024_pvqml,
   author = {Mayan Sharma},
-  title = {Solar PV Power Forecasting: Quantum, Hybrid, Deep Learning, and ML Benchmark},
-  year = {2024},
-  url = {https://github.com/Mayan10/Enhanced-HQLSTM-Model}
+  title  = {Solar PV Power Forecasting: Quantum, Hybrid, Deep Learning, and ML Benchmark},
+  year   = {2024},
+  url    = {https://github.com/Mayan10/Enhanced-HQLSTM-Model}
 }
 ```
 
 ---
 
-## Contact
-For questions, suggestions, or contributions, please open an issue or contact the maintainer.
+## Author
+
+**Mayan Sharma**
+GitHub: [@Mayan10](https://github.com/Mayan10)
+
+For questions or suggestions, open an issue on the repository.
+
+---
+
+## License
+
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
