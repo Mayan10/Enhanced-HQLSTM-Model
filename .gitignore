@@ -70,3 +70,4 @@ catboost_info/
 # Supplementary/local-only analysis material
 matlab_plots/
 notebooks/
+illustrative_run/

@@ -135,7 +135,7 @@ def plot_boxplot_errors(errors_dict: Dict[str, np.ndarray], save_path: str):
 
     labels = list(errors_dict.keys())
     data = list(errors_dict.values())
-    bp = plt.boxplot(data, labels=labels, patch_artist=True)
+    bp = plt.boxplot(data, tick_labels=labels, patch_artist=True)
 
     palette = ["lightblue", "lightgreen", "lightcoral", "khaki", "plum", "peachpuff", "lightgrey"]
     for patch, color in zip(bp["boxes"], palette):

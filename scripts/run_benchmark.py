@@ -29,6 +29,9 @@ def main():
         help="use a random subset of this many sequences instead of the full dataset "
              "(for a quick end-to-end run before committing to full-scale training)",
     )
+    parser.add_argument("--plots-dir", default="plots")
+    parser.add_argument("--checkpoint-dir", default="checkpoints")
+    parser.add_argument("--history-dir", default="history")
     args = parser.parse_args()
 
     print("Loading and preparing PV dataset...")
@@ -38,7 +41,9 @@ def main():
     )
     print(f"Train: {X_train.shape}, Val: {X_val.shape}, Test: {X_test.shape}")
 
-    runner = ExperimentRunner()
+    runner = ExperimentRunner(
+        plots_dir=args.plots_dir, checkpoint_dir=args.checkpoint_dir, history_dir=args.history_dir
+    )
 
     if not runner.pre_training_check(X_train, X_val, X_test, y_train, y_val, y_test):
         print("Pre-training checks failed, aborting.")
