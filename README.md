@@ -34,6 +34,7 @@ examples/
 models/              Text dumps of the architectures explored at different capacities
 history/             Saved training histories (loss and metrics per epoch) as JSON
 data/                Expected raw data layout (data itself is not tracked, see data/README.md)
+tests/               Unit tests for the model, data, and metrics modules
 ```
 
 `checkpoints/` and `plots/` are created when you run the pipeline and are not tracked in
@@ -109,6 +110,13 @@ The pipeline expects per-minute PV inverter telemetry as daily CSV files under
 `data/README.md` for the full column reference. Sequences of 24 consecutive readings are
 used to predict the next reading; features are standardized and the target is scaled to
 [0, 1] by `PVDataProcessor`, fit on the training split only.
+
+## Tests
+
+```bash
+pip install pytest
+pytest tests/
+```
 
 ## Notes on the metrics
 
