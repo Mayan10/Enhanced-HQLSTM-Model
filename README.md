@@ -111,6 +111,17 @@ The pipeline expects per-minute PV inverter telemetry as daily CSV files under
 used to predict the next reading; features are standardized and the target is scaled to
 [0, 1] by `PVDataProcessor`, fit on the training split only.
 
+## Known issue: OpenMP crash on macOS
+
+Importing `torch` alongside `xgboost` or `catboost` can segfault on macOS due to a conflict
+between the OpenMP runtimes each library bundles. If `scripts/run_benchmark.py` dies
+without a traceback, set these before running:
+
+```bash
+export OMP_NUM_THREADS=1
+export KMP_DUPLICATE_LIB_OK=TRUE
+```
+
 ## Tests
 
 ```bash
