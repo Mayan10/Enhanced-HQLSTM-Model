@@ -8,8 +8,6 @@ import pennylane as qml
 import torch
 import torch.nn as nn
 
-from .device import DEVICE
-
 
 class QuantumFeatureMap:
     """Encodes a classical feature vector into rotation angles on a qubit register."""
@@ -80,8 +78,8 @@ class QuantumLayer(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Run the circuit per sample, falling back to a classical projection on failure."""
+        input_device = x.device
         try:
-            x = x.to(DEVICE)
             outputs = []
             for i in range(x.shape[0]):
                 sample = x[i]
@@ -96,7 +94,7 @@ class QuantumLayer(nn.Module):
             else:
                 outputs = torch.stack(outputs)
 
-            return outputs.to(DEVICE)
+            return outputs.to(input_device)
         except Exception as exc:
             warnings.warn(f"Forward pass failed: {exc}")
             return torch.tanh(x[:, : self.n_qubits])
