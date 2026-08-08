@@ -124,8 +124,23 @@ def train_val_test_split(
     )
 
 
-def load_pv_dataset(raw_dir: str = "data/raw", sequence_length: int = 24, seed: int = 42):
-    """End-to-end loading: raw CSVs to cleaned, sequenced, and split train/val/test arrays."""
+def load_pv_dataset(
+    raw_dir: str = "data/raw",
+    sequence_length: int = 24,
+    seed: int = 42,
+    max_samples: Optional[int] = None,
+):
+    """End-to-end loading: raw CSVs to cleaned, sequenced, and split train/val/test arrays.
+
+    If `max_samples` is set, a random subset of that many sequences is used instead of the
+    full dataset. Useful for a quick end-to-end run before committing to full-scale training.
+    """
     data = clean_data(load_raw_data(raw_dir))
     X, y = build_sequences(data, sequence_length)
+
+    if max_samples is not None and max_samples < len(X):
+        rng = np.random.default_rng(seed)
+        subset = rng.choice(len(X), size=max_samples, replace=False)
+        X, y = X[subset], y[subset]
+
     return train_val_test_split(X, y, seed=seed)

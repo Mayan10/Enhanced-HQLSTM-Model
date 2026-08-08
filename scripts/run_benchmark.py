@@ -24,11 +24,17 @@ def main():
         "--retrain", action="store_true",
         help="retrain every neural model even if a checkpoint already exists",
     )
+    parser.add_argument(
+        "--max-samples", type=int, default=None,
+        help="use a random subset of this many sequences instead of the full dataset "
+             "(for a quick end-to-end run before committing to full-scale training)",
+    )
     args = parser.parse_args()
 
     print("Loading and preparing PV dataset...")
     X_train, y_train, X_val, y_val, X_test, y_test = load_pv_dataset(
-        raw_dir=args.data_dir, sequence_length=args.sequence_length, seed=args.seed
+        raw_dir=args.data_dir, sequence_length=args.sequence_length, seed=args.seed,
+        max_samples=args.max_samples,
     )
     print(f"Train: {X_train.shape}, Val: {X_val.shape}, Test: {X_test.shape}")
 
