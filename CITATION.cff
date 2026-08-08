@@ -1,0 +1,21 @@
+cff-version: 1.2.0
+message: "If you use this code, please cite the paper below."
+title: "Enhanced Hybrid Quantum-LSTM for Solar PV Forecasting"
+authors:
+  - family-names: Sharma
+    given-names: Mayan
+preferred-citation:
+  type: conference-paper
+  title: "Enhanced Hybrid Quantum-LSTM for Solar PV Forecasting"
+  authors:
+    - family-names: Sharma
+      given-names: Mayan
+  year: 2025
+  conference:
+    name: "BICET 2025"
+  doi: "10.1049/icp.2026.1046"
+  url: "https://digital-library.theiet.org/doi/10.1049/icp.2026.1046"
+  publisher:
+    name: "IET"
+repository-code: "https://github.com/Mayan10/Enhanced-HQLSTM-Model"
+license: MIT

@@ -1,89 +1,136 @@
-# Solar PV Power Forecasting: Quantum, Hybrid, Deep Learning, and ML Benchmark
+# Enhanced HQLSTM: Hybrid Quantum-Classical LSTM for Solar PV Forecasting
 
-## Project Overview
-This project provides a comprehensive, publication-ready benchmark for solar photovoltaic (PV) power forecasting. It compares advanced quantum machine learning (QML) models, hybrid quantum-classical models, classical deep learning (LSTM, GRU), and state-of-the-art machine learning models (XGBoost, CatBoost, ARIMA) on real-world PV data.
+A benchmark for short-horizon solar photovoltaic (PV) power forecasting that compares a
+hybrid quantum-classical LSTM against classical deep learning and gradient-boosted tree
+baselines on real inverter telemetry.
 
-The codebase is designed for reproducibility, extensibility, and direct use in academic publications (IET conference template included).
+This repository accompanies the paper:
 
----
+> Mayan Sharma, "Enhanced Hybrid Quantum-LSTM for Solar PV Forecasting," IET BICET 2025.
+> DOI: [10.1049/icp.2026.1046](https://digital-library.theiet.org/doi/10.1049/icp.2026.1046)
 
-## Features
-- **Quantum, Hybrid, and Classical Deep Learning Models**: Enhanced Quantum Feature Maps, Hybrid Quantum LSTM, Classical LSTM, GRU
-- **State-of-the-Art ML Baselines**: XGBoost, CatBoost, ARIMA
-- **Unified Data Pipeline**: Loads, cleans, and processes multi-year PV data (2022, 2023)
-- **Robust Evaluation**: MAE, RMSE, MBE, VAF, R², MAPE on a true test set
-- **Publication-Ready Plots**: Training curves, error distributions, scatter plots, boxplots, bar charts
-- **Easy Reproducibility**: All dependencies in `requirements.txt`, results and logs saved
-- **IET Conference Paper Template**: For direct manuscript preparation
+## Overview
 
----
+The core model, `PVForecastingModel`, wraps an LSTM with a small parameterized quantum
+circuit: the LSTM's final hidden state is projected onto a handful of qubits, processed by
+a trainable circuit (data encoding, learnable rotations, nearest-neighbor entanglement, and
+Pauli-Z measurement), and merged back into the hidden state with a residual connection. The
+quantum circuit is simulated with [PennyLane](https://pennylane.ai) and trained end-to-end
+with the rest of the network through PennyLane's PyTorch interface.
 
-## Data
-- Place raw PV data CSVs in `data/raw/2022/` and `data/raw/2023/` (organized by month)
-- The pipeline automatically loads, cleans, and splits data into train/val/test (stratified by time)
-- All features are numerically validated and cleaned for robust model training
+The benchmark trains this model, a lighter-head variant (`HybridHeadedModel`), and classical
+LSTM/GRU baselines, then compares all of them against XGBoost, CatBoost, and ARIMA on the
+same held-out test set using RMSE, MAE, MBE, VAF, R2, and MAPE.
 
----
-
-## Models Compared
-- **Classical LSTM**
-- **Hybrid Quantum LSTM**
-- **Quantum-Enhanced Model**
-- **GRU (Gated Recurrent Unit)**
-- **XGBoost**
-- **CatBoost**
-- **ARIMA (univariate baseline)**
-
----
-
-## How to Run
-1. **Install dependencies**:
-   ```bash
-   python3 -m venv venv
-   source venv/bin/activate
-   pip install -r requirements.txt
-   ```
-2. **Prepare data**: Place all raw CSVs in the appropriate `data/raw/` folders.
-3. **Run the main script**:
-   ```bash
-   python src/training/Training_and_Evaluation_Script_for_Enhanced_QML_Models.py
-   ```
-   - By default, previously trained quantum/deep models are loaded from `history/` to save time. To retrain, set `skip_trained_models=False` in the script.
-4. **Results**:
-   - All plots are saved in `plots/`
-   - Training logs/history in `history/`
-   - Key figures: training curves, error boxplots, bar charts, scatter plots, etc.
-
----
-
-## Results & Plots
-- **All results and publication-ready figures** are saved in the `plots/` directory.
-- **Model training histories** are in `history/`.
-- Example figures: `training_curves.png`, `feature_importance.png`, `model_architecture.png`
-- Use these directly in your IET conference paper or other publications.
-
----
-
-## For Publication
-- The project includes `IET Conference Paper Template.docx` for manuscript preparation.
-- All code, results, and figures are organized for easy integration into your paper.
-- Cite this project or acknowledge the codebase as appropriate.
-
----
-
-## Citation
-If you use this benchmark or codebase in your research, please cite:
+## Repository layout
 
 ```
-@software{yourname_2024_pvqml,
-  author = {Your Name},
-  title = {Solar PV Power Forecasting: Quantum, Hybrid, Deep Learning, and ML Benchmark},
-  year = {2024},
-  url = {https://github.com/yourrepo/pvqml}
+src/hqlstm/          Package: models, quantum circuit, data pipeline, training, plotting
+scripts/
+  run_benchmark.py   Full pipeline: load data, train or load checkpoints, evaluate, plot
+  plot_history.py    Regenerate plots from saved history/*.json without retraining
+examples/
+  basic_usage.py     Self-contained example on synthetic data (no dataset required)
+models/              Text dumps of the architectures explored at different capacities
+history/             Saved training histories (loss and metrics per epoch) as JSON
+data/                Expected raw data layout (data itself is not tracked, see data/README.md)
+```
+
+`checkpoints/` and `plots/` are created when you run the pipeline and are not tracked in
+version control.
+
+## Installation
+
+```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+Or install the package directly:
+
+```bash
+pip install -e .
+```
+
+Python 3.10+ is required.
+
+## Usage
+
+Run the full comparative study. Place raw data under `data/raw/<year>/` first (see
+`data/README.md`):
+
+```bash
+python scripts/run_benchmark.py
+```
+
+By default this loads any existing checkpoint for each neural model instead of retraining
+it. Pass `--retrain` to force training from scratch, and see `--help` for epochs, learning
+rate, patience, and sequence length options:
+
+```bash
+python scripts/run_benchmark.py --retrain --epochs 75 --lr 0.001
+```
+
+Results are written to `plots/` (training curves, prediction scatter plots, residuals,
+error boxplots, per-metric comparisons) and `history/` (per-epoch metrics as JSON).
+Model checkpoints are written to `checkpoints/<ModelName>_best.pth`.
+
+To regenerate the comparison plots from existing `history/*.json` files without touching
+the models:
+
+```bash
+python scripts/plot_history.py
+```
+
+To confirm the package works end to end without the real dataset:
+
+```bash
+python examples/basic_usage.py
+```
+
+## Models compared
+
+- `PVForecastingModel` — the full quantum-enhanced model (referred to as Quantum-Enhanced)
+- `HybridHeadedModel` — HybridQuantumLSTM with a lighter regression head (HybridQuantumLSTM)
+- `ClassicalLSTMModel` — LSTM baseline with a matching output head
+- `GRUModel` — GRU baseline with a matching output head
+- XGBoost, CatBoost — gradient-boosted trees on flattened input windows
+- ARIMA — univariate baseline fit on the target series alone
+
+All four neural models share the same input normalization, output head shape, optimizer
+(Adam with weight decay), gradient clipping, learning-rate scheduling, and early stopping,
+so differences in the results are attributable to the sequence model itself.
+
+## Data
+
+The pipeline expects per-minute PV inverter telemetry as daily CSV files under
+`data/raw/<year>/<month>/`, with `dc_power__422` as the forecast target. See
+`data/README.md` for the full column reference. Sequences of 24 consecutive readings are
+used to predict the next reading; features are standardized and the target is scaled to
+[0, 1] by `PVDataProcessor`, fit on the training split only.
+
+## Notes on the metrics
+
+VAF and R2 are consistently high (0.98+) across all models on this dataset because PV
+output is dominated by a strong, predictable diurnal cycle. MAPE is reported for
+completeness but is not a reliable metric here: at night `dc_power__422` is at or near
+zero, so small absolute errors during those hours produce extremely large percentage
+errors. RMSE and MAE are more representative of practical forecasting error.
+
+## Citation
+
+```bibtex
+@inproceedings{sharma2025hqlstm,
+  author    = {Sharma, Mayan},
+  title     = {Enhanced Hybrid Quantum-LSTM for Solar PV Forecasting},
+  booktitle = {IET BICET 2025},
+  year      = {2025},
+  doi       = {10.1049/icp.2026.1046},
+  url       = {https://digital-library.theiet.org/doi/10.1049/icp.2026.1046}
 }
 ```
 
----
+## License
 
-## Contact
-For questions, suggestions, or contributions, please open an issue or contact the maintainer.
+MIT. See `LICENSE`.

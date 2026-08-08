@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hqlstm"
+version = "0.2.0"
+description = "Hybrid quantum-classical LSTM for photovoltaic power forecasting"
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [{ name = "Mayan Sharma", email = "mayan25sharma@gmail.com" }]
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "torch>=2.0.0",
+    "pennylane>=0.32.0",
+    "numpy>=1.24.0",
+    "pandas>=2.0.0",
+    "scikit-learn>=1.3.0",
+    "matplotlib>=3.7.0",
+    "seaborn>=0.12.0",
+    "tqdm>=4.65.0",
+    "xgboost>=2.0.0",
+    "catboost>=1.2.0",
+    "statsmodels>=0.14.0",
+]
+
+[project.urls]
+Repository = "https://github.com/Mayan10/Enhanced-HQLSTM-Model"
+Paper = "https://digital-library.theiet.org/doi/10.1049/icp.2026.1046"
+
+[tool.setuptools.packages.find]
+where = ["src"]

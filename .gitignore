@@ -20,8 +20,9 @@ wheels/
 .installed.cfg
 *.egg
 
-# Virtual Environment
+# Virtual environments
 venv/
+.venv*/
 ENV/
 env/
 
@@ -40,16 +41,32 @@ env/
 ehthumbs.db
 Thumbs.db
 
-# Project specific
+# Model checkpoints and logs
 *.pth
 *.pt
 *.ckpt
 *.h5
-*.model
 *.log
-*.csv
+checkpoints/
+
+# Datasets (see data/README.md for how to obtain them)
+data/raw/
+data/processed/
+data/*.csv
+
+# Generated plots and third-party tool output
+plots/
+catboost_info/
 *.png
 *.jpg
 *.jpeg
 *.gif
-*.pdf 
+!docs/assets/*.png
+!docs/assets/*.jpg
+
+# Office documents and other large binary formats not meant for version control
+*.docx
+
+# Supplementary/local-only analysis material
+matlab_plots/
+notebooks/
