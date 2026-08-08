@@ -31,6 +31,9 @@ dependencies = [
     "statsmodels>=0.14.0",
 ]
 
+[project.optional-dependencies]
+dev = ["pytest>=7.0.0"]
+
 [project.urls]
 Repository = "https://github.com/Mayan10/Enhanced-HQLSTM-Model"
 Paper = "https://digital-library.theiet.org/doi/10.1049/icp.2026.1046"
