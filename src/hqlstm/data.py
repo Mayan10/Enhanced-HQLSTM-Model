@@ -93,12 +93,14 @@ def build_sequences(
     """Build sliding-window sequences of length `sequence_length` predicting the next-step target."""
     feature_columns = [c for c in data.columns if c not in (TIMESTAMP_COLUMN, TARGET_COLUMN)]
 
-    X, y = [], []
-    for i in range(len(data) - sequence_length):
-        X.append(data.iloc[i : i + sequence_length][feature_columns].values.astype(np.float32))
-        y.append(np.float32(data.iloc[i + sequence_length][TARGET_COLUMN]))
+    features = data[feature_columns].to_numpy(dtype=np.float32)
+    target = data[TARGET_COLUMN].to_numpy(dtype=np.float32)
 
-    return np.array(X, dtype=np.float32), np.array(y, dtype=np.float32)
+    n_sequences = len(data) - sequence_length
+    X = np.stack([features[i : i + sequence_length] for i in range(n_sequences)])
+    y = target[sequence_length : sequence_length + n_sequences]
+
+    return X, y
 
 
 def train_val_test_split(
