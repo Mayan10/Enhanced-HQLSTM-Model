@@ -7,6 +7,7 @@ making it a quick way to confirm the package is installed and working correctly.
 
 import os
 import sys
+import tempfile
 
 import numpy as np
 import torch
@@ -60,9 +61,14 @@ def main():
     test_loader = DataLoader(TensorDataset(X_test_t, y_test_t), batch_size=32, shuffle=False)
 
     model = PVForecastingModel(input_features=5, hidden_size=32, n_qubits=4)
-    trainer = ModelTrainer(model, processor, device=DEVICE, checkpoint_dir="/tmp/hqlstm_example")
-    trainer.train(train_loader, val_loader, epochs=10, lr=0.001, patience=5)
-    trainer.evaluate(test_loader)
+    with tempfile.TemporaryDirectory() as scratch_dir:
+        trainer = ModelTrainer(
+            model, processor, device=DEVICE,
+            checkpoint_dir=os.path.join(scratch_dir, "checkpoints"),
+            history_dir=os.path.join(scratch_dir, "history"),
+        )
+        trainer.train(train_loader, val_loader, epochs=10, lr=0.001, patience=5)
+        trainer.evaluate(test_loader)
 
 
 if __name__ == "__main__":
