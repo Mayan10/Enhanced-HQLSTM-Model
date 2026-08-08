@@ -35,6 +35,7 @@ models/              Text dumps of the architectures explored at different capac
 history/             Saved training histories (loss and metrics per epoch) as JSON
 data/                Expected raw data layout (data itself is not tracked, see data/README.md)
 tests/               Unit tests for the model, data, and metrics modules
+docs/assets/         Result plots referenced in this README
 ```
 
 `checkpoints/` and `plots/` are created when you run the pipeline and are not tracked in
@@ -110,6 +111,33 @@ The pipeline expects per-minute PV inverter telemetry as daily CSV files under
 `data/README.md` for the full column reference. Sequences of 24 consecutive readings are
 used to predict the next reading; features are standardized and the target is scaled to
 [0, 1] by `PVDataProcessor`, fit on the training split only.
+
+## Results
+
+Validation-set metrics from the final epoch of the full training run (see `history/*.json`
+for the complete per-epoch record; full test-set results are reported in the paper):
+
+| Model | Epochs | VAF | RMSE | MAE |
+|---|---|---|---|---|
+| Classical LSTM | 49 | 0.9863 | 41.35 | 14.30 |
+| HybridQuantumLSTM | 24 | 0.9859 | 41.94 | 13.71 |
+| Quantum-Enhanced | 22 | 0.9818 | 47.71 | 20.93 |
+| GRU | 72 | 0.9863 | 41.36 | 14.87 |
+
+The plots below are from a separate, reduced-scope run (a 6,000-sequence subsample, 6
+epochs) used to validate the training and evaluation pipeline end to end, not the
+full-scale run behind the numbers above or the paper. The per-sample quantum circuit
+simulation makes a full epoch on the complete ~500K-sequence dataset take on the order of
+an hour per quantum model on a single machine, so this smaller run is what's practical to
+include here; regenerate at full scale with `scripts/run_benchmark.py --retrain`.
+
+![HybridQuantumLSTM predicted vs true](docs/assets/HybridQuantumLSTM_pred_vs_true.png)
+
+![Comparative metrics across models](docs/assets/all_models_metrics_bar.png)
+
+![Quantum-Enhanced training curves](docs/assets/QuantumEnhanced_training_curves.png)
+
+![Error distribution across models](docs/assets/all_models_error_boxplot.png)
 
 ## Known issue: OpenMP crash on macOS
 
